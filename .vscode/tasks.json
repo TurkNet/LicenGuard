@@ -1,0 +1,78 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "backend:install",
+      "type": "shell",
+      "command": "python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "web:install",
+      "type": "shell",
+      "command": "npm install",
+      "options": {
+        "cwd": "${workspaceFolder}/apps/web"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "backend:seed",
+      "type": "shell",
+      "command": "source .venv/bin/activate && python seed.py",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "dependsOn": "backend:install",
+      "problemMatcher": []
+    },
+    {
+      "label": "web:dev",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}/apps/web"
+      },
+      "isBackground": true,
+      "dependsOn": "web:install",
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": [
+          {
+            "regexp": ".",
+            "file": 0,
+            "location": 0,
+            "message": 0
+          }
+        ],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*webpack.*",
+          "endsPattern": ".*compiled successfully.*"
+        }
+      }
+    },
+    {
+      "label": "mcp:install",
+      "type": "shell",
+      "command": "npm install",
+      "options": {
+        "cwd": "${workspaceFolder}/servers/mcp-licenguard"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "mcp:dev",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}/servers/mcp-licenguard"
+      },
+      "dependsOn": "mcp:install",
+      "problemMatcher": []
+    }
+  ]
+}

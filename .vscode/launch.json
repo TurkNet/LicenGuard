@@ -1,0 +1,53 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend: FastAPI server",
+      "type": "debugpy",
+      "request": "launch",
+      "pythonPath": "${workspaceFolder}/backend/.venv/bin/python311",
+      "module": "uvicorn",
+      "cwd": "${workspaceFolder}/backend",
+      "args": [
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "4000"
+      ],
+      "envFile": "${workspaceFolder}/backend/.env",
+      "jinja": true,
+      "justMyCode": true
+    },
+    {
+      "name": "Backend: Seed Mongo sample data",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/seed.py",
+      "cwd": "${workspaceFolder}/backend",
+      "envFile": "${workspaceFolder}/backend/.env",
+      "justMyCode": true
+    },
+    {
+      "name": "Web: Webpack + Chrome",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/apps/web",
+      "preLaunchTask": "web:dev"
+    },
+    {
+      "name": "MCP Server (Node)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/servers/mcp-licenguard/src/index.js",
+      "cwd": "${workspaceFolder}/servers/mcp-licenguard",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["--enable-source-maps"],
+      "envFile": "${workspaceFolder}/servers/mcp-licenguard/.env",
+      "env": {
+        "API_URL": "http://localhost:4000"
+      }
+    }
+  ]
+}
