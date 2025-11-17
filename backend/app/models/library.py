@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 from bson import ObjectId
 from pydantic import BaseModel, Field, ValidationInfo, ConfigDict
 
@@ -30,6 +30,10 @@ class VersionModel(BaseModel):
     license_url: Optional[str] = Field(None, description='Link to license file or SPDX entry')
     notes: Optional[str] = None
     license_summary: List[str] = Field(default_factory=list, description='Optional bullet list summarizing license terms')
+    evidence: List[str] = Field(default_factory=list, description='Evidence/links that support the match')
+    confidence: Optional[float] = Field(default=None, description='Confidence score from the matcher')
+    risk_level: Optional[str] = Field(default=None, description='Derived risk bucket (low/medium/high/unknown)')
+    risk_score: Optional[float] = Field(default=None, description='Derived risk score 0-100 (higher = stricter)')
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -38,6 +42,8 @@ class LibraryBase(BaseModel):
     ecosystem: str = Field(..., description='E.g. npm, nuget, maven, pip')
     description: Optional[str] = None
     repository_url: Optional[str] = None
+    official_site: Optional[str] = Field(default=None, alias='officialSite')
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class LibraryCreate(LibraryBase):
@@ -68,6 +74,12 @@ class LibraryDiscoveryQuery(BaseModel):
     notes: Optional[str] = None
 
 
+class LicenseSummaryItem(BaseModel):
+    summary: str
+    emoji: Optional[str] = None
+    model_config = ConfigDict(extra='ignore')
+
+
 class LibraryDiscoveryMatch(BaseModel):
     name: Optional[str] = None
     officialSite: Optional[str] = None
@@ -75,7 +87,7 @@ class LibraryDiscoveryMatch(BaseModel):
     version: Optional[str] = None
     license: Optional[str] = None
     license_url: Optional[str] = None
-    license_summary: Optional[List[str]] = Field(default=None, alias='licenseSummary')
+    license_summary: Optional[List[Union[str, LicenseSummaryItem]]] = Field(default=None, alias='licenseSummary')
     confidence: Optional[float] = None
     description: Optional[str] = None
     evidence: Optional[List[str]] = None
