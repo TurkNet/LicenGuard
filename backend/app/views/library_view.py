@@ -23,8 +23,8 @@ router = APIRouter(prefix='/libraries', tags=['libraries'])
 
 
 @router.get('/', response_model=List[LibraryDocument])
-async def handle_list_libraries():
-    return await list_libraries()
+async def handle_list_libraries(limit: int = Query(50, ge=1, le=500, description='Max items to return')):
+    return await list_libraries(limit)
 
 
 @router.get('/search', response_model=LibrarySearchResponse)

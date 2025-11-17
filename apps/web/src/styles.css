@@ -174,7 +174,7 @@ header {
   position: absolute;
   top: 110%;
   right: 0;
-  background: #341668;
+  background: #1b0f30;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
@@ -191,10 +191,12 @@ header {
   color: white;
   text-align: left;
   cursor: pointer;
+  border-radius: 0;
 }
 
 .inline-menu__item:hover {
   background: rgba(255, 255, 255, 0.08);
+  border-radius: 0;
 }
 
 .summary-list {
@@ -237,12 +239,14 @@ header {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
+  min-width: 0;
 }
 
 .summary-row__field {
   display: flex;
   align-items: baseline;
   gap: 0.35rem;
+  width: 100%;
 }
 
 .summary-row__label {
@@ -266,7 +270,12 @@ header {
 .summary-row__value--description {
   font-size: 1rem;
   color: #475569;
-  display: inline-block;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 80%;
+  width: 80%;
 }
 
 .summary-row__value--link a {

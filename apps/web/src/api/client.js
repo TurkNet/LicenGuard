@@ -18,8 +18,9 @@ async function request(path, options = {}) {
   return res.json();
 }
 
-export function fetchLibraries() {
-  return request('/libraries');
+export function fetchLibraries(limit = 50) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  return request(`/libraries?${params.toString()}`);
 }
 
 export function searchLibraries(query) {

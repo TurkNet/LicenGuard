@@ -19,8 +19,10 @@ from pymongo import ReturnDocument
 collection = get_database()['libraries']
 
 
-async def list_libraries() -> List[LibraryDocument]:
+async def list_libraries(limit: int | None = None) -> List[LibraryDocument]:
     cursor = collection.find().sort('updated_at', -1)
+    if limit and limit > 0:
+        cursor = cursor.limit(limit)
     docs = [LibraryDocument(**doc) async for doc in cursor]
     return docs
 
