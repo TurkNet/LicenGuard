@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { fetchLibraries } from './api/client.js';
 import ImportModal from './components/ImportModal.jsx';
 import UploadModal from './components/UploadModal.jsx';
+import RepoModal from './components/RepoModal.jsx';
 import LibrarySummary from './components/LibrarySummary.jsx';
 import heroLogo from './assets/logo.png';
 
@@ -133,19 +134,11 @@ export default function App() {
         }}
         onImported={loadLibraries}
       />
-      {isRepoModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsRepoModalOpen(false)}>
-          <div className="modal" onClick={event => event.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Repo Linki</h2>
-              <button className="close" onClick={() => setIsRepoModalOpen(false)} aria-label="Close">✕</button>
-            </div>
-            <div className="panel" style={{ background: 'transparent', boxShadow: 'none', color: 'white' }}>
-              <p>Burada repo linkiyle import akışını ekleyeceğiz.</p>
-            </div>
-          </div>
-        </div>
-      )}
+      <RepoModal
+        isOpen={isRepoModalOpen}
+        onClose={() => setIsRepoModalOpen(false)}
+        onImported={loadLibraries}
+      />
 
       {loading && <p>Loading libraries...</p>}
       {error && <p className="error">{error}</p>}

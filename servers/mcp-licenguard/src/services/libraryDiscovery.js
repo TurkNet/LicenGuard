@@ -92,16 +92,18 @@ If the user provides ecosystem/version as unknown or omits them, infer them wher
 - Set query.ecosystem to the detected package manager (npm/pypi/maven/nuget/etc.) if you can infer from sources; avoid "unknown" when evidence exists.
 - Set query.version to the best version you report (e.g., the latest stable) instead of "unknown".
 - Always set \`ecosystem\` (on query and on every match) using this mapping:
-  - npm → "JavaScript / Node.js"
-  - pypi → "Python"
-  - maven → "Java / JVM"
-  - nuget → ".NET"
-  - rubygems → "Ruby"
-  - crates → "Rust"
-  - packagist → "PHP"
-  - cocoapods → "iOS / Swift / Obj-C"
-  - gradle → "Java / Kotlin"
-  - go → "Go"
+- npm → "JavaScript / Node.js"
+- pypi → "Python"
+- maven → "Java / JVM"
+- nuget → ".NET"
+- rubygems → "Ruby"
+- crates → "Rust"
+- packagist → "PHP"
+- cocoapods → "iOS / Swift / Obj-C"
+- gradle → "Java / Kotlin"
+- go → "Go"
+- Use repository metadata to infer ecosystem: look at GitHub/GitLab language badges, repo descriptions ("A Commander for modern Go CLI interactions"), presence of go.mod (Go), Cargo.toml (Rust), package.json (JavaScript), requirements.txt (Python), pom.xml (Java), .csproj (C#/.NET). Prefer the language the repository is written in over similarly named packages in other ecosystems.
+- If the official repository clearly indicates a language/framework (e.g., Go project with go.mod and "Go CLI" description) but a similarly named npm package exists, prefer the repository’s language and map ecosystem accordingly (Go → "Go") instead of defaulting to JavaScript.
 
 When providing licenseSummary, favor concise bullet points like:
 [

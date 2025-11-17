@@ -25,6 +25,10 @@ export default function UploadModal({ isOpen, onClose, onImported }) {
   const [processing, setProcessing] = useState(false);
   const fileInputRef = useRef(null);
   const allDone = depJobs.length > 0 && depJobs.every(job => job.status === 'done');
+  const hasActiveWork =
+    analyzing ||
+    processing ||
+    depJobs.some(job => ['pending', 'searching', 'importing'].includes(job.status));
 
   const handleFileChange = (event) => {
     const selected = event.target.files?.[0];
@@ -77,6 +81,13 @@ export default function UploadModal({ isOpen, onClose, onImported }) {
     const score = Math.min(100, Math.max(0, Math.round(base * confidence)));
     return { level, score };
   }, []);
+
+  const formatVersion = (job) => {
+    const matchedVersion = job.match?.version;
+    if (job.version) return job.version;
+    if (matchedVersion) return `(N/A) -> ${matchedVersion}/latest`;
+    return '(N/A)';
+  };
 
   useEffect(() => {
     if (!isOpen) {
@@ -219,12 +230,17 @@ export default function UploadModal({ isOpen, onClose, onImported }) {
 
   if (!isOpen) return null;
 
+  const handleSafeClose = () => {
+    if (hasActiveWork) return;
+    onClose();
+  };
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={handleSafeClose}>
       <div className="modal modal--wide" onClick={event => event.stopPropagation()}>
         <div className="modal-header">
           <h2>Dosya Yükle</h2>
-          <button className="close" onClick={onClose} aria-label="Close">
+          <button className="close" onClick={handleSafeClose} aria-label="Close" disabled={hasActiveWork}>
             ✕
           </button>
         </div>
@@ -260,7 +276,7 @@ export default function UploadModal({ isOpen, onClose, onImported }) {
                     <li key={job.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', background: 'rgba(255,255,255,0.04)', padding: '0.5rem 0.75rem', borderRadius: '8px' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
                         <span style={{ fontWeight: 700 }}>{job.name}</span>
-                        <span style={{ color: '#cbd5f5', fontSize: '0.9rem' }}>{job.version ?? 'versiyon belirtilmedi'}</span>
+                        <span style={{ color: '#cbd5f5', fontSize: '0.9rem' }}>{formatVersion(job)}</span>
                         {job.message && <span style={{ color: '#cbd5f5', fontSize: '0.85rem' }}>{job.message}</span>}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>

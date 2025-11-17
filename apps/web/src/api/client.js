@@ -42,6 +42,19 @@ export function addVersion(libraryId, payload) {
   });
 }
 
+export async function scanRepository(url) {
+  const res = await fetch(`${API_BASE}/libraries/repositories/scan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url })
+  });
+  if (!res.ok) {
+    const message = await res.text();
+    throw new Error(message || `Request failed with status ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function analyzeFileUpload(file) {
   const form = new FormData();
   form.append('file', file);

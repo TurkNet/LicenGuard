@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Query, UploadFile, File
+import os
+import shutil
 from typing import List
 from ..controllers.library_controller import (
     add_version,
@@ -17,6 +19,7 @@ from ..models.library import (
     VersionModel
 )
 from ..services.mcp_client import get_mcp_http_client, MCPClientError
+from ..services.repo_scanner import clone_and_scan
 
 
 router = APIRouter(prefix='/libraries', tags=['libraries'])
@@ -68,3 +71,36 @@ async def handle_analyze_file(file: UploadFile = File(...)):
     except MCPClientError as error:
         raise HTTPException(status_code=502, detail=str(error))
     return {"file": file.filename, **(report or {})}
+
+
+@router.post('/repositories/scan')
+async def handle_repo_scan(payload: dict):
+    repo_url = payload.get('url')
+    if not repo_url:
+        raise HTTPException(status_code=400, detail='url is required')
+    client = get_mcp_http_client()
+    if not client:
+        raise HTTPException(status_code=503, detail='MCP HTTP client not configured')
+    tmpdir = None
+    try:
+        scan_result = clone_and_scan(repo_url)
+        tmpdir = scan_result.get('root')
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=f'Repo scan failed: {error}')
+
+    analyzed_files = []
+    try:
+        for relpath in scan_result.get('files', []):
+            full_path = os.path.join(scan_result['root'], relpath)
+            try:
+                with open(full_path, 'r', encoding='utf-8', errors='ignore') as fh:
+                    content = fh.read()
+                report = await client.analyze_file({"filename": relpath, "content": content}) or {}
+            except Exception as exc:
+                report = {"error": str(exc)}
+            analyzed_files.append({"path": relpath, "report": report})
+    finally:
+        if tmpdir:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    return {"url": repo_url, "files": analyzed_files}
