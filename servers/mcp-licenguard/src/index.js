@@ -5,9 +5,20 @@ import fetch from 'node-fetch';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { discoverLibraryInfo } from './services/libraryDiscovery.js';
+import { discoverLibraryInfo, getActiveLlmInfo } from './services/libraryDiscovery.js';
 
 dotenv.config();
+const llmInfo = getActiveLlmInfo();
+const logLlmDetails = () => {
+  const urlPreview = llmInfo.apiUrl ? llmInfo.apiUrl.replace(/secret|key/gi, '[redacted]') : '(unset)';
+  logInfo('[mcp] LLM config', {
+    provider: llmInfo.provider,
+    model: llmInfo.model,
+    apiUrl: urlPreview,
+    keyPresent: llmInfo.keyPresent,
+    localEnabled: llmInfo.localEnabled
+  });
+};
 
 const defaultTrue = value => {
   if (value === undefined) return true;
@@ -49,6 +60,40 @@ async function searchLibrary(query) {
   return request(`/libraries/search/local?q=${encodeURIComponent(query)}`);
 }
 
+function computeRisk(m) {
+  const summaries = Array.isArray(m.licenseSummary) ? m.licenseSummary : [];
+  const textParts = summaries.map(item =>
+    typeof item === 'object' && item !== null && 'summary' in item ? item.summary : item
+  );
+  const emojiParts = summaries
+    .map(item => (typeof item === 'object' && item !== null && item.emoji ? item.emoji : null))
+    .filter(Boolean);
+  const haystack = [m.license ?? '', ...textParts].join(' ').toLowerCase();
+
+  const hasStrong =
+    /agpl|gpl|sspl|copyleft/.test(haystack) || emojiParts.some(e => e.includes('🔴') || e.includes('🚫'));
+  const hasWeak =
+    /lgpl|mpl|cddl/.test(haystack) || emojiParts.some(e => e.includes('🟠') || e.includes('🟡'));
+  const hasPermissive =
+    /mit|apache|bsd|isc/.test(haystack) || emojiParts.some(e => e.includes('🟢') || e.includes('✅'));
+
+  let level = 'unknown';
+  let base = 50; // scale 0-100: lower is safer
+  if (hasStrong) {
+    level = 'high';
+    base = 90;
+  } else if (hasWeak) {
+    level = 'medium';
+    base = 60;
+  } else if (hasPermissive) {
+    level = 'low';
+    base = 10;
+  }
+  const confidence = typeof m.confidence === 'number' ? m.confidence : 1;
+  const score = Math.min(100, Math.max(0, Math.round(base * confidence)));
+  return { level, score };
+}
+
 async function persistDiscovery(report) {
   try {
     const match = Array.isArray(report.matches) && report.matches.length > 0 ? report.matches[0] : null;
@@ -56,20 +101,43 @@ async function persistDiscovery(report) {
     logInfo('[mcp] persist skipped: no matches to save');
       return;
     }
+    const normalizeLicenseSummary = (licenseSummary) => {
+      if (!licenseSummary) return [];
+      if (Array.isArray(licenseSummary)) {
+        // If already [{summary, emoji}], collect summary; if strings, keep as-is
+        const maybeObjects = licenseSummary.map(item =>
+          typeof item === 'object' && item !== null && 'summary' in item ? item.summary : item
+        );
+        return maybeObjects.filter(entry => typeof entry === 'string');
+      }
+      if (Array.isArray(licenseSummary?.summary)) {
+        return licenseSummary.summary.filter(entry => typeof entry === 'string');
+      }
+      return [];
+    };
+    const risk = computeRisk(match);
     const payload = {
       name: match.name ?? report.query?.name ?? 'unknown',
       ecosystem: report.query?.ecosystem ?? 'unknown',
       description: match.description,
       repository_url: match.repository ?? match.officialSite ?? null,
+      official_site: match.officialSite ?? null,
       versions: [
         {
           version: match.version ?? report.query?.version ?? 'unknown',
           license_name: match.license ?? null,
           license_url: match.license_url ?? null,
           notes: report.summary ?? null,
-          license_summary: Array.isArray(match.licenseSummary) ? match.licenseSummary : [],
+          license_summary: normalizeLicenseSummary(match.licenseSummary),
           confidence: match.confidence ?? null,
-          evidence: match.evidence ?? []
+          evidence: Array.isArray(match.evidence)
+            ? match.evidence
+            : [
+                ...(match.repository ? [`Repo: ${match.repository}`] : []),
+                ...(match.officialSite ? [`Official site: ${match.officialSite}`] : []),
+              ],
+          risk_level: risk.level,
+          risk_score: risk.score
         }
       ]
     };
@@ -127,12 +195,24 @@ function createServer() {
 
       const report = await discoverLibraryInfo(payload);
       logInfo('[mcp] discover-library-info result', JSON.stringify(report));
-      const matches = Array.isArray(report.matches) ? report.matches : [];
-      let bestMatch = matches.length > 0 ? matches[0] : null;
-      if (matches.length > 1) {
-        bestMatch = matches.reduce((a, b) => (b.confidence > (a.confidence ?? 0) ? b : a), matches[0]);
+      const matchesWithRisk = (Array.isArray(report.matches) ? report.matches : []).map(m => {
+        const risk = computeRisk(m);
+        return {
+          ...m,
+          risk_level: risk.level,
+          risk_score: risk.score
+        };
+      });
+      let bestMatch = matchesWithRisk.length > 0 ? matchesWithRisk[0] : null;
+      if (matchesWithRisk.length > 1) {
+        bestMatch = matchesWithRisk.reduce((a, b) => (b.confidence > (a.confidence ?? 0) ? b : a), matchesWithRisk[0]);
       }
-      const response = { query: report.query, matches, bestMatch, summary: report.summary };
+      const response = {
+        query: report.query,
+        matches: matchesWithRisk,
+        bestMatch,
+        summary: report.summary
+      };
       if (AUTO_IMPORT_ENABLED && bestMatch) await persistDiscovery({ ...report, matches: [bestMatch] });
       return { content: [{ type: 'text', text: JSON.stringify(response, null, 2) }], structuredContent: response };
     } catch (error) {
@@ -195,7 +275,6 @@ async function startHttpServer() {
   if (!HTTP_ENABLED) {
     return;
   }
-
   const server = createServer();
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined, // stateless mode: no session required
@@ -335,6 +414,7 @@ async function main() {
     throw new Error('At least one MCP transport must be enabled');
   }
 
+  logLlmDetails();
   await Promise.all([startStdioServer(), startHttpServer()]);
 }
 

@@ -13,6 +13,27 @@ Tools:
 - `library-detail` – fetches a single library by id.
 - `discover-library-info` – uses ChatGPT (OpenAI) to find GitHub/homepage URLs, versions, and license info for a library. Configure `OPENAI_API_KEY`, optionally `OPENAI_MODEL` / `OPENAI_API_URL`.
 
+### Using a local LLM
+
+If you have an on-prem LLM endpoint, set `LOCAL_LLM_API_URL` and `LOCAL_LLM_API_KEY` in `.env` (optionally `LOCAL_LLM_MODEL`). When these are present, discovery requests are routed to the local endpoint; otherwise the server falls back to OpenAI. For local usage the defaults are `X-API-Key` (no prefix) and a helper header `X-Request-Source: post_text_script`. You can override via:
+
+- `LOCAL_LLM_AUTH_HEADER` (default `X-API-Key`, use e.g. `Authorization`)
+- `LOCAL_LLM_AUTH_PREFIX` (default empty for locals; set `Bearer`/`Token` etc.)
+- `LOCAL_LLM_EXTRA_HEADERS` (JSON object string) to inject additional headers, e.g. `{"X-Request-Source":"post_text_script"}`
+
+## License risk scoring
+
+During discovery, the MCP server calculates a simple license risk:
+
+- It scans `license`, `licenseSummary` text/emojis.
+- Strong copyleft keywords or 🔴/🚫 emojis ⇒ `risk_level = high`, base score 90.
+- Weak copyleft keywords or 🟠/🟡 ⇒ `risk_level = medium`, base score 60.
+- Permissive keywords or 🟢/✅ ⇒ `risk_level = low`, base score 10.
+- Falls back to `unknown` with base 50 if nothing matches.
+- Final `risk_score` = base * confidence (capped 0–100, rounded).
+
+Both `risk_level` and `risk_score` are persisted on versions and returned in MCP responses. Use these to gate CI/CD (e.g., fail on `risk_level === 'high'` or `risk_score >= threshold`).
+
 ## Transports
 
 The server now speaks both STDIO and the Streamable HTTP transport:
