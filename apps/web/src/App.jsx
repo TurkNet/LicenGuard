@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { fetchLibraries } from './api/client.js';
 import ImportModal from './components/ImportModal.jsx';
 import UploadModal from './components/UploadModal.jsx';
@@ -14,6 +14,7 @@ export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isRepoModalOpen, setIsRepoModalOpen] = useState(false);
+  const menuRef = useRef(null);
 
   const loadLibraries = async () => {
     try {
@@ -30,6 +31,17 @@ export default function App() {
   useEffect(() => {
     loadLibraries();
   }, []);
+
+  useEffect(() => {
+    if (!isMenuOpen) return;
+    const handleClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setIsMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isMenuOpen]);
 
   const filteredLibraries = libraries.filter(library => {
     if (!query) return true;
@@ -65,7 +77,7 @@ export default function App() {
             onChange={event => setQuery(event.target.value)}
           />
         </div>
-        <div className="inline-add-wrapper">
+        <div className="inline-add-wrapper" ref={menuRef}>
           <button
             className="inline-add"
             onClick={() => setIsMenuOpen(prev => !prev)}
@@ -84,7 +96,7 @@ export default function App() {
                   closeMenus();
                 }}
               >
-                Tekil
+                Elle Ekle
               </button>
               <button
                 type="button"

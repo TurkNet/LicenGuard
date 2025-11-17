@@ -97,14 +97,17 @@ export default function LibrarySummary({ libraries = [] }) {
                       </div>
                       <div className="summary-row__field">
                         <span className="summary-row__label">Description :</span>
-                        <span className="summary-row__value summary-row__value--description">
+                        <span
+                          className="summary-row__value summary-row__value--description"
+                          title={library.description ?? 'Description pending'}
+                        >
                           {library.description ?? 'Description pending'}
                         </span>
                       </div>
-                      <div className="summary-row__field">
-                        <span className="summary-row__label">Official site :</span>
-                        <span className="summary-row__value summary-row__value--link">
-                          {library.official_site || library.officialSite ? (
+                      {(library.official_site || library.officialSite) && (
+                        <div className="summary-row__field">
+                          <span className="summary-row__label">Official site :</span>
+                          <span className="summary-row__value summary-row__value--link">
                             <a
                               href={library.official_site ?? library.officialSite}
                               target="_blank"
@@ -113,11 +116,9 @@ export default function LibrarySummary({ libraries = [] }) {
                             >
                               {library.official_site ?? library.officialSite}
                             </a>
-                          ) : (
-                            '—'
-                          )}
-                        </span>
-                      </div>
+                          </span>
+                        </div>
+                      )}
                     </div>
                     <div className="summary-row__cell summary-row__versions">
                       {recentVersions.map(version => (
