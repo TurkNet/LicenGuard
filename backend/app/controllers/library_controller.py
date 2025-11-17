@@ -31,6 +31,9 @@ def _parse_package_query(value: str) -> tuple[str | None, str | None]:
         r'([\w.\-@/]+)==([\w.\-]+)',                     # name==1.2.3 (Python)
         r'([\w.\-@/]+)=([\w.\-]+)',                      # name=1.2.3
         r'([\w.\-@/]+)@([\w.\-]+)',                      # name@1.2.3
+        r'([\w.\-@/]+)\s+([\w.\-]+)',                    # name 1.2.3 (space-separated)
+        r'([\w.\-@/]+)\s*,\s*\^?([\w.\-]+)',             # name , ^1.2.3
+        r'([\w.\-@/]+)\s+\^([\w.\-]+)',                  # name ^1.2.3
     ]
     for pattern in patterns:
         m = re.search(pattern, text)
@@ -81,14 +84,14 @@ async def search_libraries(query: str) -> LibrarySearchResponse:
 
     client = get_mcp_http_client()
     if not client:
-        return LibrarySearchResponse(source='mongo', results=[])
+        return LibrarySearchResponse(source='mcp', results=[])
 
     try:
         report_name = f'{name_token}@{version_token}' if name_token and version_token else (name_token or query)
         report = await client.discover_library({'name': report_name})
     except MCPClientError as error:
         print(f'[search_libraries] MCP lookup failed for "{query}": {error}')
-        return LibrarySearchResponse(source='mongo', results=[])
+        return LibrarySearchResponse(source='mcp', results=[])
 
     if not report:
         return LibrarySearchResponse(source='mcp', discovery=None)

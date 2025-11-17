@@ -40,3 +40,17 @@ export function addVersion(libraryId, payload) {
     body: JSON.stringify(payload)
   });
 }
+
+export async function analyzeFileUpload(file) {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API_BASE}/libraries/analyze/file`, {
+    method: 'POST',
+    body: form
+  });
+  if (!res.ok) {
+    const message = await res.text();
+    throw new Error(message || `Request failed with status ${res.status}`);
+  }
+  return res.json();
+}

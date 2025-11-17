@@ -1,12 +1,13 @@
 {
-  "servers": {
-    "LicenGuardServer": {
-      "type": "stdio",
-      "command": "/opt/homebrew/bin/node",
-      "args": [
-        "--enable-source-maps",
-        "./servers/mcp-licenguard/src/index.js"
-      ]
-    }
-  }
+	"servers": {
+		"LicenGuardServer": {
+			"type": "stdio",
+			"command": "/opt/homebrew/bin/node",
+			"args": [
+				"--enable-source-maps",
+				"./servers/mcp-licenguard/src/index.js"
+			]
+		}
+	},
+	"inputs": []
 }

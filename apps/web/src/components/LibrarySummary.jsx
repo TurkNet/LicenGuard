@@ -17,6 +17,26 @@ const getLicenseGuide = (licenseName) => {
   return LICENSE_GUIDES[licenseName.toLowerCase()] ?? null;
 };
 
+const RiskGauge = ({ score, level, compact = false, needleless = false }) => {
+  if (score === undefined || score === null || Number.isNaN(score)) return null;
+  const clamped = Math.min(100, Math.max(0, Number(score)));
+  const needlePos = `${clamped}%`;
+  const label = level ? `${level} (${clamped})` : `${clamped}`;
+  return (
+    <div className={`risk-gauge ${compact ? 'risk-gauge--compact' : ''}`} aria-label={`Risk: ${label}`} title={`Risk: ${label}`}>
+      <div className="risk-gauge__track">
+        <div className="risk-gauge__gradient" />
+        {!needleless && <div className="risk-gauge__needle" style={{ left: needlePos }} />}
+        {needleless && (
+          <div className="risk-gauge__overlay" style={{ width: needlePos }} />
+        )}
+        {needleless && <div className="risk-gauge__marker" style={{ left: needlePos }} />}
+      </div>
+      <div className="risk-gauge__label">Risk: {label}</div>
+    </div>
+  );
+};
+
 export default function LibrarySummary({ libraries = [] }) {
   const [selectedLibraryId, setSelectedLibraryId] = useState(null);
   const [selectedVersionId, setSelectedVersionId] = useState(null);
@@ -47,7 +67,7 @@ export default function LibrarySummary({ libraries = [] }) {
   return (
     <div className="panel summary-panel master-detail-shell">
       <div className="summary-header">
-        <h2>Library snapshots</h2>
+        <h2>Library</h2>
       </div>
       <div
         className={`master-detail-track ${
@@ -79,6 +99,23 @@ export default function LibrarySummary({ libraries = [] }) {
                         <span className="summary-row__label">Description :</span>
                         <span className="summary-row__value summary-row__value--description">
                           {library.description ?? 'Description pending'}
+                        </span>
+                      </div>
+                      <div className="summary-row__field">
+                        <span className="summary-row__label">Official site :</span>
+                        <span className="summary-row__value summary-row__value--link">
+                          {library.official_site || library.officialSite ? (
+                            <a
+                              href={library.official_site ?? library.officialSite}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="summary-row__link summary-row__link--prominent"
+                            >
+                              {library.official_site ?? library.officialSite}
+                            </a>
+                          ) : (
+                            '—'
+                          )}
                         </span>
                       </div>
                     </div>
@@ -113,6 +150,8 @@ export default function LibrarySummary({ libraries = [] }) {
               <ul className="version-list">
                 {selectedLibrary.versions.map(version => {
                   const isSelected = selectedVersionId === version.version;
+                  const riskScore = version.risk_score ?? null;
+                  const riskLevel = version.risk_level ?? null;
                   return (
                     <li key={`${selectedLibrary.id ?? selectedLibrary._id}-${version.version}`}>
                       <button
@@ -124,7 +163,14 @@ export default function LibrarySummary({ libraries = [] }) {
                           <strong>{version.version}</strong>
                           <p>{version.license_name ?? 'License pending'}</p>
                         </div>
-                        <span className="version-row__chevron" aria-hidden="true">→</span>
+                        <div className="version-row__meta">
+                          {riskScore !== null && (
+                            <div className="version-row__risk">
+                              <RiskGauge score={riskScore} level={riskLevel} compact needleless />
+                            </div>
+                          )}
+                          <span className="version-row__chevron" aria-hidden="true">→</span>
+                        </div>
                       </button>
                     </li>
                   );
@@ -162,6 +208,19 @@ export default function LibrarySummary({ libraries = [] }) {
                     )}
                   </dd>
                 </div>
+                {(selectedVersion.risk_score !== undefined && selectedVersion.risk_score !== null) && (
+                  <div>
+                    <dt>Risk</dt>
+                    <dd>
+                      <RiskGauge
+                        score={selectedVersion.risk_score}
+                        level={selectedVersion.risk_level}
+                        compact
+                        needleless
+                      />
+                    </dd>
+                  </div>
+                )}
                 <div>
                   <dt>Notlar</dt>
                   <dd>{selectedVersion.notes ?? 'Not bulunamadı'}</dd>
@@ -171,7 +230,16 @@ export default function LibrarySummary({ libraries = [] }) {
                 {(() => {
                   const guide = getLicenseGuide(selectedVersion.license_name);
                   const customSummary = selectedVersion.license_summary || [];
-                  const bullets = customSummary.length ? customSummary.map(text => ({ icon: '•', text })) : guide?.bullets;
+                  const structuredBullets = Array.isArray(customSummary)
+                    ? customSummary
+                        .map(item =>
+                          typeof item === 'object' && item !== null && 'summary' in item
+                            ? { icon: item.emoji ?? '•', text: item.summary }
+                            : { icon: '•', text: item }
+                        )
+                        .filter(b => typeof b.text === 'string' && b.text.length > 0)
+                    : [];
+                  const bullets = structuredBullets.length ? structuredBullets : guide?.bullets;
                   const title = guide?.title ?? 'Lisans özeti';
                   if (!bullets || !bullets.length) return null;
                   return (

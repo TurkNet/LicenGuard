@@ -79,6 +79,34 @@ class MCPHttpClient:
             return structured
         raise MCPClientError('Unexpected structured content from MCP server')
 
+    async def analyze_file(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        await self.ensure_initialized()
+        try:
+            result = await self._send_request(
+                'tools_call',
+                {'name': 'analyze-file', 'arguments': payload},
+                str(uuid4())
+            )
+        except MCPClientError as error:
+            if 'Server not initialized' in str(error):
+                self._initialized = False
+                self._session_id = None
+                self._protocol_version = None
+                await self.ensure_initialized()
+                result = await self._send_request(
+                    'tools_call',
+                    {'name': 'analyze-file', 'arguments': payload},
+                    str(uuid4())
+                )
+            else:
+                raise
+        if not isinstance(result, dict):
+            return None
+        structured = result.get('structuredContent')
+        if isinstance(structured, dict):
+            return structured
+        raise MCPClientError('Unexpected structured content from MCP server')
+
     async def _send_notification(self, method: str) -> None:
         message: Dict[str, Any] = {'jsonrpc': JSONRPC_VERSION, 'method': method}
         await self._post(message, expect_response=False)

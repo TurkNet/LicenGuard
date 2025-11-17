@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union, Dict
 from bson import ObjectId
 from pydantic import BaseModel, Field, ValidationInfo, ConfigDict
 
@@ -29,7 +29,10 @@ class VersionModel(BaseModel):
     license_name: Optional[str] = Field(None, description='License name e.g. MIT')
     license_url: Optional[str] = Field(None, description='Link to license file or SPDX entry')
     notes: Optional[str] = None
-    license_summary: List[str] = Field(default_factory=list, description='Optional bullet list summarizing license terms')
+    license_summary: List[Union[str, Dict[str, Optional[str]]]] = Field(
+        default_factory=list,
+        description='Optional bullet list summarizing license terms (supports strings or {summary, emoji})'
+    )
     evidence: List[str] = Field(default_factory=list, description='Evidence/links that support the match')
     confidence: Optional[float] = Field(default=None, description='Confidence score from the matcher')
     risk_level: Optional[str] = Field(default=None, description='Derived risk bucket (low/medium/high/unknown)')
@@ -43,6 +46,7 @@ class LibraryBase(BaseModel):
     description: Optional[str] = None
     repository_url: Optional[str] = None
     official_site: Optional[str] = Field(default=None, alias='officialSite')
+    model_config = ConfigDict(populate_by_name=True)
     model_config = ConfigDict(populate_by_name=True)
 
 
@@ -60,11 +64,12 @@ class LibraryDocument(LibraryBase):
     versions: List[VersionModel] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-
-    class Config:
-        populate_by_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {ObjectId: str}
+    model_config = ConfigDict(
+        populate_by_name=True,
+        arbitrary_types_allowed=True,
+        json_encoders={ObjectId: str},
+        extra='allow'
+    )
 
 
 class LibraryDiscoveryQuery(BaseModel):

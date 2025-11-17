@@ -1,34 +1,62 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createLibrary, searchLibraries } from '../api/client.js';
 
-const classifySummary = (summary = []) =>
-  summary.map((text, idx) => {
-    const lower = text.toLowerCase();
-    let icon = '•';
-    if (
-      lower.includes('izin verir') ||
-      lower.includes('allowed') ||
-      lower.includes('permitted') ||
-      lower.includes('serbest') ||
-      lower.includes('permits') ||
-      lower.includes('dağıtabilirsiniz')
-    ) {
-      icon = '✅';
-    } else if (
-      lower.includes('gereklidir') ||
-      lower.includes('required') ||
-      lower.includes('sınırlı') ||
-      lower.includes('notice') ||
-      lower.includes('attribution')
-    ) {
-      icon = '⚠️';
-    }
-    return { icon, text: text.replace(/^([✅⚠️•]\s*)/, '').trim(), key: idx };
-  });
+const computeRisk = (match) => {
+  const summaries = Array.isArray(match.licenseSummary ?? match.license_summary)
+    ? match.licenseSummary ?? match.license_summary
+    : [];
+  const textParts = summaries.map(item =>
+    typeof item === 'object' && item !== null && 'summary' in item ? item.summary : item
+  );
+  const emojiParts = summaries
+    .map(item => (typeof item === 'object' && item !== null && item.emoji ? item.emoji : null))
+    .filter(Boolean);
+  const haystack = [match.license ?? '', ...textParts].join(' ').toLowerCase();
+
+  const hasStrong =
+    /agpl|gpl|sspl|copyleft/.test(haystack) || emojiParts.some(e => e.includes('🔴') || e.includes('🚫'));
+  const hasWeak =
+    /lgpl|mpl|cddl/.test(haystack) || emojiParts.some(e => e.includes('🟠') || e.includes('🟡'));
+  const hasPermissive =
+    /mit|apache|bsd|isc/.test(haystack) || emojiParts.some(e => e.includes('🟢') || e.includes('✅'));
+
+  let level = 'unknown';
+  let base = 50;
+  if (hasStrong) {
+    level = 'high';
+    base = 90;
+  } else if (hasWeak) {
+    level = 'medium';
+    base = 60;
+  } else if (hasPermissive) {
+    level = 'low';
+    base = 10;
+  }
+  const confidence = typeof match.confidence === 'number' ? match.confidence : 1;
+  const score = Math.min(100, Math.max(0, Math.round(base * confidence)));
+  return { level, score };
+};
+
+const RiskGauge = ({ score, level }) => {
+  if (score === undefined || score === null || Number.isNaN(score)) return null;
+  const clamped = Math.min(100, Math.max(0, Number(score)));
+  const needlePos = `${clamped}%`;
+  const label = level ? `Risk: ${level} (${clamped})` : `Risk score: ${clamped}`;
+  return (
+    <div className="risk-gauge" aria-label={label} title={label}>
+      <div className="risk-gauge__track">
+        <div className="risk-gauge__gradient" />
+        <div className="risk-gauge__needle" style={{ left: needlePos }} />
+      </div>
+      <div className="risk-gauge__label">{label}</div>
+    </div>
+  );
+};
 
 function MatchCard({ match, onImport, onClose, disabled, discoveryQuery }) {
   const isExisting =
     Boolean(match._id || match.id || match.source === 'mongo' || match.existing);
+  const risk = match.risk_level && match.risk_score !== undefined ? { level: match.risk_level, score: match.risk_score } : computeRisk(match);
   const handleImport = () => {
     if (isExisting) {
       onClose();
@@ -36,7 +64,18 @@ function MatchCard({ match, onImport, onClose, disabled, discoveryQuery }) {
     }
     onImport(match);
   };
-  const formattedSummary = classifySummary(match.licenseSummary || match.license_summary || []);
+  const formattedSummary = (match.licenseSummary ?? match.license_summary ?? [])
+    .map((item, idx) => {
+      if (typeof item === 'object' && item !== null && 'summary' in item) {
+        return { icon: item.emoji ?? '•', text: item.summary ?? '', key: idx };
+      }
+      if (typeof item === 'string') {
+        return { icon: '•', text: item, key: idx };
+      }
+      return null;
+    })
+    .filter(Boolean)
+    .filter(item => item.text.length > 0);
   const ecosystem = match.ecosystem ?? discoveryQuery?.ecosystem ?? 'Ecosystem belirtilmemiş';
   return (
     <div className="panel" style={{ marginBottom: '0.75rem' }}>
@@ -52,6 +91,11 @@ function MatchCard({ match, onImport, onClose, disabled, discoveryQuery }) {
         {match.version && <span>{match.version}</span>}
         {match.license && <span className="tag-muted">{match.license}</span>}
       </div>
+      {risk && risk.score !== undefined && (
+        <div style={{ marginTop: '0.75rem' }}>
+          <RiskGauge score={risk.score} level={risk.level} />
+        </div>
+      )}
       {formattedSummary.length > 0 && (
         <div className="license-summary" style={{ marginTop: '0.5rem' }}>
           <p className="license-summary__title">Lisans özeti</p>
@@ -82,14 +126,21 @@ export default function ImportModal({ isOpen, onClose, onImported }) {
   const [error, setError] = useState(null);
   const [results, setResults] = useState(null);
   const [importingId, setImportingId] = useState(null);
+  const inputRef = useRef(null);
 
-  // reset state when modal closes
-  if (!isOpen && (query || results || error || importingId)) {
-    setQuery('');
-    setResults(null);
-    setError(null);
-    setImportingId(null);
-  }
+  const getMatchKey = (match) => `${match.name ?? ''}-${match.version || match.versionKey || ''}`.trim();
+
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      inputRef.current.focus();
+    }
+    if (!isOpen) {
+      setQuery('');
+      setResults(null);
+      setError(null);
+      setImportingId(null);
+    }
+  }, [isOpen]);
 
   const handleSearch = async (event) => {
     event.preventDefault();
@@ -109,23 +160,38 @@ export default function ImportModal({ isOpen, onClose, onImported }) {
 
   const buildPayloadFromMatch = (match) => {
     const version = match.version ?? 'unknown';
-    const licenseSummary = match.licenseSummary ?? match.license_summary ?? [];
     const evidence = match.evidence && Array.isArray(match.evidence) ? match.evidence.join(' ') : null;
     const notes = match.summary ?? evidence ?? null;
-    const formattedSummary = classifySummary(licenseSummary).map(item => `${item.icon} ${item.text}`);
+    const licenseSummary = Array.isArray(match.licenseSummary ?? match.license_summary)
+      ? (match.licenseSummary ?? match.license_summary)
+      : [];
+    const licenseStructured = licenseSummary
+      .map(item => {
+        if (typeof item === 'object' && item !== null && 'summary' in item) {
+          return { summary: item.summary ?? '', emoji: item.emoji ?? null };
+        }
+        return { summary: item, emoji: null };
+      })
+      .filter(entry => typeof entry.summary === 'string' && entry.summary.length > 0);
     const discoveryQuery = results?.discovery?.query ?? {};
+    const risk = match.risk_level && match.risk_score !== undefined ? { level: match.risk_level, score: match.risk_score } : computeRisk(match);
     return {
       name: match.name ?? query,
       ecosystem: match.ecosystem ?? discoveryQuery.ecosystem ?? 'unknown',
       description: match.description,
       repository_url: match.repository,
+      official_site: match.officialSite ?? match.official_site ?? null,
       versions: [
         {
           version,
           license_name: match.license ?? null,
           license_url: match.license_url ?? null,
           notes,
-          license_summary: Array.from(new Set(formattedSummary))
+          license_summary: licenseStructured,
+          evidence: Array.isArray(match.evidence) ? match.evidence : [],
+          confidence: match.confidence ?? null,
+          risk_level: risk.level,
+          risk_score: risk.score
         }
       ]
     };
@@ -133,8 +199,9 @@ export default function ImportModal({ isOpen, onClose, onImported }) {
 
   const handleImport = async (match) => {
     try {
-      if (importingId === match.name) return;
-      setImportingId(match.name);
+      const importKey = getMatchKey(match);
+      if (importingId === importKey) return;
+      setImportingId(importKey);
       setLoading(true);
       setError(null);
       const payload = buildPayloadFromMatch(match);
@@ -163,18 +230,30 @@ export default function ImportModal({ isOpen, onClose, onImported }) {
 
   const discoveryMatches = results?.discovery?.matches ?? [];
   const discoveryQuery = results?.discovery?.query ?? {};
-  const mongoResults = dedupeByKey(results?.results ?? [], lib => lib.id ?? lib._id ?? `${lib.name}-${lib.versions?.[0]?.version ?? ''}`);
+  const source = results?.source;
+  const mongoResults = source === 'mongo'
+    ? dedupeByKey(results?.results ?? [], lib => lib.id ?? lib._id ?? `${lib.name}-${lib.versions?.[0]?.version ?? ''}`)
+    : [];
   const mongoMatches = mongoResults.map(lib => ({
     ...lib,
     version: lib.versions?.[0]?.version,
+    versionKey: lib.versions?.[0]?.version ?? '',
     license: lib.versions?.[0]?.license_name,
     licenseSummary: lib.versions?.[0]?.license_summary ?? lib.versions?.[0]?.licenseSummary ?? [],
     repository: lib.repository_url,
+    officialSite: lib.official_site,
     ecosystem: lib.ecosystem,
+    risk_level: lib.versions?.[0]?.risk_level ?? lib.risk_level,
+    risk_score: lib.versions?.[0]?.risk_score ?? lib.risk_score,
     existing: true
   }));
-  // If we have Mongo hits, show only them to avoid duplicate imports from MCP results
-  const combinedMatches = mongoMatches.length > 0 ? mongoMatches : discoveryMatches;
+  // If we have Mongo hits (source mongo), show only them; otherwise show MCP matches
+  const combinedMatches =
+    source === 'mcp'
+      ? discoveryMatches
+      : mongoMatches.length > 0
+        ? mongoMatches
+        : discoveryMatches;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -185,6 +264,7 @@ export default function ImportModal({ isOpen, onClose, onImported }) {
         </div>
         <form className="inline-form" onSubmit={handleSearch} style={{ marginBottom: '1rem' }}>
           <input
+            ref={inputRef}
             placeholder='Örn: "dotenv": "^16.4.5"'
             value={query}
             onChange={e => setQuery(e.target.value)}
@@ -197,35 +277,16 @@ export default function ImportModal({ isOpen, onClose, onImported }) {
         {mongoResults.length > 0 && (
           <div style={{ marginBottom: '1rem' }}>
             <h3>Mongo sonuçları</h3>
-            <ul className="summary-list summary-list--static">
-              {mongoResults.map(lib => (
-                <li key={lib.id ?? lib._id ?? `${lib.name}-${lib.versions?.[0]?.version ?? ''}`}>
-                  <strong>{lib.name}</strong>
-                  <div className="summary-tags">
-                    {lib.versions.map(v => <span key={`${lib.id ?? lib._id}-${v.version}`}>{v.version}</span>)}
-                  </div>
-                  {lib.versions?.length > 0 && lib.versions[0].license_summary?.length > 0 && (
-                    <div className="license-summary" style={{ marginTop: '0.4rem' }}>
-                      <p className="license-summary__title">Lisans özeti</p>
-                      <ul>
-                        {classifySummary(lib.versions[0].license_summary).map(item => (
-                          <li key={`${lib.id ?? lib._id}-ls-${item.key}`}>
-                            <span>{item.icon}</span>
-                            <span>{item.text}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-                  <button
-        style={{ marginTop: '0.5rem' }}
-        onClick={onClose}
-        >
-        Kapat
-      </button>
+            {mongoMatches.map(match => (
+              <MatchCard
+                key={`${match.name}-${match.version || match.versionKey || ''}-${match.repository ?? match.officialSite ?? 'mongo'}`}
+                match={match}
+                onImport={handleImport}
+                onClose={onClose}
+                disabled={importingId === getMatchKey(match) || loading}
+                discoveryQuery={discoveryQuery}
+              />
+            ))}
           </div>
         )}
 

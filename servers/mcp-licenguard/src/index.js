@@ -6,6 +6,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { discoverLibraryInfo, getActiveLlmInfo } from './services/libraryDiscovery.js';
+import { analyzeFile } from './services/fileAnalyzer.js';
 
 dotenv.config();
 const llmInfo = getActiveLlmInfo();
@@ -104,14 +105,19 @@ async function persistDiscovery(report) {
     const normalizeLicenseSummary = (licenseSummary) => {
       if (!licenseSummary) return [];
       if (Array.isArray(licenseSummary)) {
-        // If already [{summary, emoji}], collect summary; if strings, keep as-is
-        const maybeObjects = licenseSummary.map(item =>
-          typeof item === 'object' && item !== null && 'summary' in item ? item.summary : item
-        );
-        return maybeObjects.filter(entry => typeof entry === 'string');
+        return licenseSummary
+          .map(item => {
+            if (typeof item === 'object' && item !== null) {
+              return { summary: item.summary ?? '', emoji: item.emoji ?? null };
+            }
+            return { summary: item, emoji: null };
+          })
+          .filter(entry => typeof entry.summary === 'string' && entry.summary.length > 0);
       }
       if (Array.isArray(licenseSummary?.summary)) {
-        return licenseSummary.summary.filter(entry => typeof entry === 'string');
+        return licenseSummary.summary
+          .filter(entry => typeof entry === 'string' && entry.length > 0)
+          .map(entry => ({ summary: entry, emoji: null }));
       }
       return [];
     };
@@ -222,6 +228,30 @@ function createServer() {
   };
   server.registerTool('discover-library-info', { title: 'Discover library metadata', description: 'Use ChatGPT to find repo URLs, versions, and license info for a library.', inputSchema: { type: 'object', required: ['name'], properties: { name: { type: 'string', description: 'Library/package name' }, version: { type: 'string', description: 'Version to search for' }, ecosystem: { type: 'string', description: 'npm, maven, nuget, etc.' }, notes: { type: 'string', description: 'Anything else to guide the search' } }, additionalProperties: false } }, discoverLibraryInfoHandler);
   localToolHandlers['discover-library-info'] = discoverLibraryInfoHandler;
+
+  const analyzeFileHandler = async ({ filename, content }) => {
+    if (!filename || !content) throw new Error('filename and content are required');
+    const report = analyzeFile({ filename, content });
+    logInfo('[mcp] analyze-file', JSON.stringify({ filename, manager: report.packageManager, deps: report.dependencies }));
+    return {
+      content: [{ type: 'text', text: JSON.stringify(report, null, 2) }],
+      structuredContent: report
+    };
+  };
+  server.registerTool('analyze-file', {
+    title: 'Analyze dependency file',
+    description: 'Detect package manager and dependencies from uploaded file content',
+    inputSchema: {
+      type: 'object',
+      required: ['filename', 'content'],
+      properties: {
+        filename: { type: 'string' },
+        content: { type: 'string', description: 'Raw file content' }
+      },
+      additionalProperties: false
+    }
+  }, analyzeFileHandler);
+  localToolHandlers['analyze-file'] = analyzeFileHandler;
 
   const toolsCallHandler = async ({ name, arguments: args }) => {
     const handler = localToolHandlers[name] ?? localToolHandlers[name.replace(/\//g, '.')] ?? localToolHandlers[name.replace(/\./g, '_')];

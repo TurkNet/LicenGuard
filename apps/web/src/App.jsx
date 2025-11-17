@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchLibraries } from './api/client.js';
 import ImportModal from './components/ImportModal.jsx';
+import UploadModal from './components/UploadModal.jsx';
 import LibrarySummary from './components/LibrarySummary.jsx';
 import heroLogo from './assets/logo.png';
 
@@ -9,7 +10,10 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [query, setQuery] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isRepoModalOpen, setIsRepoModalOpen] = useState(false);
 
   const loadLibraries = async () => {
     try {
@@ -38,6 +42,8 @@ export default function App() {
     return nameMatch || versionMatch;
   });
 
+  const closeMenus = () => setIsMenuOpen(false);
+
   return (
     <div className="app-shell">
       <header className="hero">
@@ -59,13 +65,75 @@ export default function App() {
             onChange={event => setQuery(event.target.value)}
           />
         </div>
-        <button className="inline-add" onClick={() => setIsModalOpen(true)} aria-label="Add library">
-          +
-        </button>
+        <div className="inline-add-wrapper">
+          <button
+            className="inline-add"
+            onClick={() => setIsMenuOpen(prev => !prev)}
+            aria-label="Add library"
+            type="button"
+          >
+            +
+          </button>
+          {isMenuOpen && (
+            <div className="inline-menu">
+              <button
+                type="button"
+                className="inline-menu__item"
+                onClick={() => {
+                  setIsImportModalOpen(true);
+                  closeMenus();
+                }}
+              >
+                Tekil
+              </button>
+              <button
+                type="button"
+                className="inline-menu__item"
+                onClick={() => {
+                  setIsUploadModalOpen(true);
+                  closeMenus();
+                }}
+              >
+                Dosya Yükle
+              </button>
+              <button
+                type="button"
+                className="inline-menu__item"
+                onClick={() => {
+                  setIsRepoModalOpen(true);
+                  closeMenus();
+                }}
+              >
+                Repo Linki
+              </button>
+            </div>
+          )}
+        </div>
       </section>
       <LibrarySummary libraries={filteredLibraries} />
 
-      <ImportModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onImported={loadLibraries} />
+      <ImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} onImported={loadLibraries} />
+      <UploadModal
+        isOpen={isUploadModalOpen}
+        onClose={() => {
+          setIsUploadModalOpen(false);
+          loadLibraries();
+        }}
+        onImported={loadLibraries}
+      />
+      {isRepoModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsRepoModalOpen(false)}>
+          <div className="modal" onClick={event => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Repo Linki</h2>
+              <button className="close" onClick={() => setIsRepoModalOpen(false)} aria-label="Close">✕</button>
+            </div>
+            <div className="panel" style={{ background: 'transparent', boxShadow: 'none', color: 'white' }}>
+              <p>Burada repo linkiyle import akışını ekleyeceğiz.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading && <p>Loading libraries...</p>}
       {error && <p className="error">{error}</p>}

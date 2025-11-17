@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, UploadFile, File
 from typing import List
 from ..controllers.library_controller import (
     add_version,
@@ -16,6 +16,7 @@ from ..models.library import (
     LibraryUpdate,
     VersionModel
 )
+from ..services.mcp_client import get_mcp_http_client, MCPClientError
 
 
 router = APIRouter(prefix='/libraries', tags=['libraries'])
@@ -54,3 +55,16 @@ async def handle_update_library(library_id: str, payload: LibraryUpdate):
 @router.post('/{library_id}/versions', response_model=LibraryDocument)
 async def handle_add_version(library_id: str, payload: VersionModel):
     return await add_version(library_id, payload)
+
+
+@router.post('/analyze/file')
+async def handle_analyze_file(file: UploadFile = File(...)):
+    client = get_mcp_http_client()
+    if not client:
+        raise HTTPException(status_code=503, detail='MCP HTTP client not configured')
+    content = (await file.read()).decode('utf-8', errors='ignore')
+    try:
+        report = await client.analyze_file({"filename": file.filename, "content": content})
+    except MCPClientError as error:
+        raise HTTPException(status_code=502, detail=str(error))
+    return {"file": file.filename, **(report or {})}
