@@ -528,6 +528,11 @@ button {
   box-sizing: border-box;
 }
 
+/* Smoothly animate height changes when panels switch */
+.master-detail-shell {
+  transition: height 0.35s ease;
+}
+
 .master-detail-track {
   display: flex;
   width: 300%;
@@ -555,6 +560,15 @@ button {
 
 /* Add a consistent horizontal gap between the two panels */
 .master-detail-track {
+}
+
+/* Add a small bottom gap for each section so content doesn't sit flush to the container */
+.master-detail-track section {
+  padding-bottom: 24px;
+}
+
+.master-detail-shell {
+  padding-bottom: 12px;
 }
 
 .version-panel {

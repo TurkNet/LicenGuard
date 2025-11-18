@@ -165,6 +165,24 @@ export default function UploadModal({ isOpen, onClose, onImported }) {
             risk_level: v?.risk_level,
             risk_score: v?.risk_score
           };
+        } else if (res?.source === 'mcp' && Array.isArray(res?.results) && res.results.length > 0) {
+          const lib = res.results[0];
+          const v = lib.versions?.[0];
+          match = {
+            name: lib.name,
+            version: v?.version,
+            ecosystem: lib.ecosystem,
+            description: lib.description,
+            repository: lib.repository_url,
+            license: v?.license_name,
+            license_url: v?.license_url,
+            licenseSummary: v?.license_summary ?? [],
+            evidence: v?.evidence ?? [],
+            confidence: v?.confidence,
+            risk_level: v?.risk_level,
+            risk_score: v?.risk_score,
+            officialSite: lib.officialSite
+          };
         } else if (res?.discovery?.matches?.length) {
           match = res.discovery.bestMatch ?? res.discovery.matches[0];
         }
@@ -194,6 +212,7 @@ export default function UploadModal({ isOpen, onClose, onImported }) {
           ecosystem: match.ecosystem ?? res?.discovery?.query?.ecosystem ?? 'unknown',
           description: match.description,
           repository_url: match.repository ?? match.officialSite ?? null,
+          officialSite: match.officialSite ?? match.repository ?? null,
           versions: [
             {
               version: normalizeVersion(match.version ?? next.version) ?? 'unknown',

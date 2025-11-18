@@ -1,42 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { createLibrary, searchLibraries } from '../api/client.js';
 
-const computeRisk = (match) => {
-  const summaries = Array.isArray(match.licenseSummary ?? match.license_summary)
-    ? match.licenseSummary ?? match.license_summary
-    : [];
-  const textParts = summaries.map(item =>
-    typeof item === 'object' && item !== null && 'summary' in item ? item.summary : item
-  );
-  const emojiParts = summaries
-    .map(item => (typeof item === 'object' && item !== null && item.emoji ? item.emoji : null))
-    .filter(Boolean);
-  const haystack = [match.license ?? '', ...textParts].join(' ').toLowerCase();
-
-  const hasStrong =
-    /agpl|gpl|sspl|copyleft/.test(haystack) || emojiParts.some(e => e.includes('🔴') || e.includes('🚫'));
-  const hasWeak =
-    /lgpl|mpl|cddl/.test(haystack) || emojiParts.some(e => e.includes('🟠') || e.includes('🟡'));
-  const hasPermissive =
-    /mit|apache|bsd|isc/.test(haystack) || emojiParts.some(e => e.includes('🟢') || e.includes('✅'));
-
-  let level = 'unknown';
-  let base = 50;
-  if (hasStrong) {
-    level = 'high';
-    base = 90;
-  } else if (hasWeak) {
-    level = 'medium';
-    base = 60;
-  } else if (hasPermissive) {
-    level = 'low';
-    base = 10;
-  }
-  const confidence = typeof match.confidence === 'number' ? match.confidence : 1;
-  const score = Math.min(100, Math.max(0, Math.round(base * confidence)));
-  return { level, score };
-};
-
 const RiskGauge = ({ score, level }) => {
   if (score === undefined || score === null || Number.isNaN(score)) return null;
   const clamped = Math.min(100, Math.max(0, Number(score)));
@@ -54,9 +18,8 @@ const RiskGauge = ({ score, level }) => {
 };
 
 function MatchCard({ match, onImport, onClose, disabled, discoveryQuery }) {
-  const isExisting =
-    Boolean(match._id || match.id || match.source === 'mongo' || match.existing);
-  const risk = match.risk_level && match.risk_score !== undefined ? { level: match.risk_level, score: match.risk_score } : computeRisk(match);
+  const isExisting = Boolean(match.existing || match.source === 'mongo');
+  const risk = match.risk_level && match.risk_score !== undefined ? { level: match.risk_level, score: match.risk_score } : null;
   const handleImport = () => {
     if (isExisting) {
       onClose();
@@ -76,7 +39,7 @@ function MatchCard({ match, onImport, onClose, disabled, discoveryQuery }) {
     })
     .filter(Boolean)
     .filter(item => item.text.length > 0);
-  const ecosystem = match.ecosystem ?? discoveryQuery?.ecosystem ?? 'Ecosystem belirtilmemiş';
+    const ecosystem = match.ecosystem ?? discoveryQuery?.ecosystem ?? 'Ecosystem belirtilmemiş';
   return (
     <div className="panel" style={{ marginBottom: '0.75rem' }}>
       <h4>{match.name ?? 'İsim bulunamadı'}</h4>
@@ -150,7 +113,6 @@ export default function ImportModal({ isOpen, onClose, onImported }) {
       setError(null);
       const data = await searchLibraries(query.trim());
       setResults(data);
-      console.log('Search results:', data);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -174,13 +136,13 @@ export default function ImportModal({ isOpen, onClose, onImported }) {
       })
       .filter(entry => typeof entry.summary === 'string' && entry.summary.length > 0);
     const discoveryQuery = results?.discovery?.query ?? {};
-    const risk = match.risk_level && match.risk_score !== undefined ? { level: match.risk_level, score: match.risk_score } : computeRisk(match);
+      const risk = match.risk_level && match.risk_score !== undefined ? { level: match.risk_level, score: match.risk_score } : null;
     return {
       name: match.name ?? query,
       ecosystem: match.ecosystem ?? discoveryQuery.ecosystem ?? 'unknown',
       description: match.description,
-      repository_url: match.repository,
-      official_site: match.officialSite ?? match.official_site ?? null,
+      repository_url: match.repository ?? match.officialSite ?? null,
+      officialsite: match.officialSite ?? match.repository ?? null,
       versions: [
         {
           version,
@@ -228,12 +190,14 @@ export default function ImportModal({ isOpen, onClose, onImported }) {
     });
   };
 
-  const discoveryMatches = results?.discovery?.matches ?? [];
   const discoveryQuery = results?.discovery?.query ?? {};
   const source = results?.source;
+  const baseResults = Array.isArray(results?.results) ? results.results : [];
   const mongoResults = source === 'mongo'
-    ? dedupeByKey(results?.results ?? [], lib => lib.id ?? lib._id ?? `${lib.name}-${lib.versions?.[0]?.version ?? ''}`)
+    ? dedupeByKey(baseResults, lib => lib.id ?? lib._id ?? `${lib.name}-${lib.versions?.[0]?.version ?? ''}`)
     : [];
+  const mcpResults = source === 'mcp' ? baseResults : [];
+
   const mongoMatches = mongoResults.map(lib => ({
     ...lib,
     version: lib.versions?.[0]?.version,
@@ -241,19 +205,30 @@ export default function ImportModal({ isOpen, onClose, onImported }) {
     license: lib.versions?.[0]?.license_name,
     licenseSummary: lib.versions?.[0]?.license_summary ?? lib.versions?.[0]?.licenseSummary ?? [],
     repository: lib.repository_url,
-    officialSite: lib.official_site,
+    officialSite: lib.officialsite,
     ecosystem: lib.ecosystem,
     risk_level: lib.versions?.[0]?.risk_level ?? lib.risk_level,
     risk_score: lib.versions?.[0]?.risk_score ?? lib.risk_score,
     existing: true
   }));
-  // If we have Mongo hits (source mongo), show only them; otherwise show MCP matches
+
+  const mcpMatches = mcpResults.map(lib => ({
+    ...lib,
+    version: lib.versions?.[0]?.version,
+    versionKey: lib.versions?.[0]?.version ?? '',
+    license: lib.versions?.[0]?.license_name,
+    licenseSummary: lib.versions?.[0]?.license_summary ?? [],
+    repository: lib.repository_url,
+    officialSite: lib.officialsite,
+    ecosystem: lib.ecosystem,
+    risk_level: lib.versions?.[0]?.risk_level ?? lib.risk_level,
+    risk_score: lib.versions?.[0]?.risk_score ?? lib.risk_score
+  }));
+
   const combinedMatches =
-    source === 'mcp'
-      ? discoveryMatches
-      : mongoMatches.length > 0
-        ? mongoMatches
-        : discoveryMatches;
+    source === 'mongo'
+      ? mongoMatches
+      : mcpMatches;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -307,7 +282,7 @@ export default function ImportModal({ isOpen, onClose, onImported }) {
           </div>
         )}
 
-        {!loading && !error && !mongoResults.length && !discoveryMatches.length && results && (
+        {!loading && !error && !mongoResults.length && !combinedMatches.length && results && (
           <p>Sonuç bulunamadı.</p>
         )}
       </div>
