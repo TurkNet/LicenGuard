@@ -71,3 +71,18 @@ Register the MCP binary with your preferred tool (e.g. Claude, VS Code) to brows
 ```
 
 This normalized format keeps each OSS component and version audit-ready, whether it was imported from NuGet, Maven, npm, or PyPI.
+
+## Screenshots
+
+| View |
+| --- |
+| **Main dashboard**<br/>![Homepage](docs/screenshots/homapage.png) |
+| **Version list**<br/>![Library list](docs/screenshots/Library.png) |
+| **Version details**<br/>![Library details](docs/screenshots/Library2.png) |
+| **Navigation**<br/>![Menu](docs/screenshots/Menu.png) |
+| **Manual search**<br/>![Manual search](docs/screenshots/ManuelSearch.png) |
+| **Manual results**<br/>![Manual search results](docs/screenshots/ManuelSearchResult.png) |
+| **File upload**<br/>![File upload](docs/screenshots/FileUpload.png) |
+| **Upload completed**<br/>![File upload finished](docs/screenshots/FileUploadFinish.png) |
+| **Repo search**<br/>![Repo search](docs/screenshots/RepoSearch.png) |
+| **Repo results**<br/>![Repo search results](docs/screenshots/RepoSearch2.png) |
