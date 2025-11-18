@@ -52,16 +52,29 @@ Register the MCP binary with your preferred tool (e.g. Claude, VS Code) to brows
 
 ```json
 {
-  "_id": "ObjectId",
-  "name": "Express",
+  "_id": "6650f7ab5b4c4e2b3c1a1234",
+  "name": "express",
   "ecosystem": "npm",
-  "description": "...",
+  "description": "Fast, unopinionated, minimalist web framework for Node.js",
   "repository_url": "https://github.com/expressjs/express",
+  "officialSite": "https://expressjs.com",
   "versions": [
     {
       "version": "4.19.2",
       "license_name": "MIT",
       "license_url": "https://opensource.org/licenses/MIT",
+      "notes": "Detected via LICENSE and package.json",
+      "license_summary": [
+        { "summary": "Permissive for commercial use", "emoji": "✅" },
+        { "summary": "Requires copyright + license notice", "emoji": "ℹ️" }
+      ],
+      "evidence": [
+        "LICENSE",
+        "package.json:license"
+      ],
+      "confidence": 0.94,
+      "risk_level": "low",
+      "risk_score": 12,
       "created_at": "2024-06-01T12:00:00Z"
     }
   ],
@@ -70,7 +83,7 @@ Register the MCP binary with your preferred tool (e.g. Claude, VS Code) to brows
 }
 ```
 
-This normalized format keeps each OSS component and version audit-ready, whether it was imported from NuGet, Maven, npm, or PyPI.
+This normalized format keeps each OSS component and version audit-ready, with evidence, summaries, and risk scoring captured alongside license metadata.
 
 ## Screenshots
 
