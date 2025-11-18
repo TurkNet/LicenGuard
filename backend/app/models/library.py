@@ -24,20 +24,21 @@ class PyObjectId(ObjectId):
         return json_schema
 
 
+class LicenseSummaryItem(BaseModel):
+    summary: str
+    emoji: Optional[str] = None
+
+
 class VersionModel(BaseModel):
     version: str = Field(..., description='Semantic version string')
     license_name: Optional[str] = Field(None, description='License name e.g. MIT')
     license_url: Optional[str] = Field(None, description='Link to license file or SPDX entry')
     notes: Optional[str] = None
-    license_summary: List[Union[str, Dict[str, Optional[str]]]] = Field(
-        default_factory=list,
-        description='Optional bullet list summarizing license terms (supports strings or {summary, emoji})'
-    )
+    license_summary: List[LicenseSummaryItem] = Field(default_factory=list, description='Summary of license key points')
     evidence: List[str] = Field(default_factory=list, description='Evidence/links that support the match')
     confidence: Optional[float] = Field(default=None, description='Confidence score from the matcher')
     risk_level: Optional[str] = Field(default=None, description='Derived risk bucket (low/medium/high/unknown)')
     risk_score: Optional[float] = Field(default=None, description='Derived risk score 0-100 (higher = stricter)')
-    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class LibraryBase(BaseModel):
@@ -45,9 +46,9 @@ class LibraryBase(BaseModel):
     ecosystem: str = Field(..., description='E.g. npm, nuget, maven, pip')
     description: Optional[str] = None
     repository_url: Optional[str] = None
-    official_site: Optional[str] = Field(default=None, alias='officialSite')
+    officialSite: Optional[str] = Field(default=None, alias='officialSite')
     model_config = ConfigDict(populate_by_name=True)
-    model_config = ConfigDict(populate_by_name=True)
+
 
 
 class LibraryCreate(LibraryBase):
@@ -67,9 +68,10 @@ class LibraryDocument(LibraryBase):
     model_config = ConfigDict(
         populate_by_name=True,
         arbitrary_types_allowed=True,
-        json_encoders={ObjectId: str},
+        json_encoders={ObjectId: str, PyObjectId: str},
         extra='allow'
     )
+
 
 
 class LibraryDiscoveryQuery(BaseModel):
@@ -79,34 +81,24 @@ class LibraryDiscoveryQuery(BaseModel):
     notes: Optional[str] = None
 
 
-class LicenseSummaryItem(BaseModel):
-    summary: str
-    emoji: Optional[str] = None
-    model_config = ConfigDict(extra='ignore')
-
-
 class LibraryDiscoveryMatch(BaseModel):
     name: Optional[str] = None
-    officialSite: Optional[str] = None
-    repository: Optional[str] = None
-    version: Optional[str] = None
-    license: Optional[str] = None
-    license_url: Optional[str] = None
-    license_summary: Optional[List[Union[str, LicenseSummaryItem]]] = Field(default=None, alias='licenseSummary')
-    confidence: Optional[float] = None
+    ecosystem: Optional[str] = None
     description: Optional[str] = None
-    evidence: Optional[List[str]] = None
-    model_config = ConfigDict(populate_by_name=True, extra='ignore')
+    repository_url: Optional[str] = None
+    officialSite: Optional[str] = None
+    versions: List[VersionModel] = Field(default_factory=list)
 
 
 class LibraryDiscoveryReport(BaseModel):
     query: LibraryDiscoveryQuery
     matches: List[LibraryDiscoveryMatch] = Field(default_factory=list)
     summary: Optional[str] = None
-    model_config = ConfigDict(extra='ignore')
+
 
 
 class LibrarySearchResponse(BaseModel):
     source: Literal['mongo', 'mcp']
     results: List[LibraryDocument] = Field(default_factory=list)
     discovery: Optional[LibraryDiscoveryReport] = None
+    model_config = ConfigDict(json_encoders={ObjectId: str})

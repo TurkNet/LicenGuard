@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -22,7 +23,7 @@ class MCPHttpClient:
         self._session_id: Optional[str] = None
         self._protocol_version: Optional[str] = None
         self._initialized = False
-        timeout = httpx.Timeout(10.0, connect=5.0)
+        timeout = httpx.Timeout(30.0, connect=5.0)
         self._client = httpx.AsyncClient(timeout=timeout)
         self._lock = asyncio.Lock()
 
@@ -72,9 +73,11 @@ class MCPHttpClient:
                 raise
         if not isinstance(result, dict):
             return None
-        structured = result.get('structuredContent')
+        structured = result.get('structuredContent') or result.get('data') or result
         if structured is None:
             return None
+        if isinstance(structured, list):
+            return structured[0] if structured else None
         if isinstance(structured, dict):
             return structured
         raise MCPClientError('Unexpected structured content from MCP server')
@@ -137,7 +140,8 @@ class MCPHttpClient:
             response = await self._client.post(self.base_url, headers=headers, json=message)
         except httpx.HTTPError as exc:
             raise MCPClientError(f'Failed to contact MCP server: {exc}') from exc
-        print('[mcp-client] POST', self.base_url, 'status', response.status_code)
+        log_info = f'{datetime.utcnow().isoformat()} [mcp-client] POST {self.base_url} status {response.status_code}'
+        print(log_info)
         if response.is_error:
             raise MCPClientError(f'MCP server responded with {response.status_code}: {response.text}')
         if not expect_response or response.status_code == 202:
