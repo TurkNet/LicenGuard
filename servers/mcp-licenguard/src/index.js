@@ -7,6 +7,9 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { discoverLibraryInfo, getActiveLlmInfo } from './services/libraryDiscovery.js';
 import { analyzeFile } from './services/fileAnalyzer.js';
+import { scoreLibraryRisk } from './services/riskScoring.js';
+import { callChat } from './services/llmClient.js';
+
 
 dotenv.config();
 const llmInfo = getActiveLlmInfo();
@@ -44,6 +47,20 @@ const parseList = (value) =>
 
 const ALLOWED_HOSTS = parseList(process.env.MCP_HTTP_ALLOWED_HOSTS);
 const ALLOWED_ORIGINS = parseList(process.env.MCP_HTTP_ALLOWED_ORIGINS);
+
+// LLM config (mirror libraryDiscovery.js so risk scoring uses same creds)
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_API_URL = process.env.OPENAI_API_URL ?? 'https://api.openai.com/v1/chat/completions';
+const OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
+const LOCAL_LLM_API_KEY = process.env.LOCAL_LLM_API_KEY;
+const LOCAL_LLM_API_URL = process.env.LOCAL_LLM_API_URL;
+const LOCAL_LLM_MODEL = process.env.LOCAL_LLM_MODEL;
+const LOCAL_LLM_AUTH_HEADER = process.env.LOCAL_LLM_AUTH_HEADER;
+const LOCAL_LLM_AUTH_PREFIX = process.env.LOCAL_LLM_AUTH_PREFIX;
+const USING_LOCAL_LLM = Boolean(LOCAL_LLM_API_URL && LOCAL_LLM_API_KEY);
+const CHAT_API_KEY = USING_LOCAL_LLM ? LOCAL_LLM_API_KEY : OPENAI_API_KEY;
+const CHAT_API_URL = USING_LOCAL_LLM ? LOCAL_LLM_API_URL : OPENAI_API_URL;
+const CHAT_MODEL = USING_LOCAL_LLM ? LOCAL_LLM_MODEL : OPENAI_MODEL;
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -95,6 +112,41 @@ function computeRisk(m) {
   return { level, score };
 }
 
+async function scoreWithLLM(match) {
+  try {
+    const pkg = {
+      name: match.name,
+      ecosystem: match.ecosystem,
+      description: match.description,
+      repository_url: match.repository,
+      officialSite: match.officialSite,
+      versions: [
+        {
+          version: match.version,
+          license_name: match.license,
+          license_url: match.license_url,
+          license_summary: match.licenseSummary,
+          evidence: match.evidence,
+          confidence: match.confidence,
+          risk_score: match.risk_score,
+          risk_level: match.risk_level
+        }
+      ]
+    };
+    const scored = await scoreLibraryRisk(pkg);
+    if (scored && typeof scored.risk_score === 'number') {
+      return {
+        risk_score: scored.risk_score,
+        risk_level: scored.risk_level ?? match.risk_level ?? 'unknown',
+        risk_details: scored
+      };
+    }
+  } catch (err) {
+    logError('[mcp] risk scoring LLM failed', err);
+  }
+  return null;
+}
+
 async function persistDiscovery(report) {
   try {
     const match = Array.isArray(report.matches) && report.matches.length > 0 ? report.matches[0] : null;
@@ -121,13 +173,15 @@ async function persistDiscovery(report) {
       }
       return [];
     };
-    const risk = computeRisk(match);
+    const risk = match.risk_score !== undefined && match.risk_level
+      ? { level: match.risk_level, score: match.risk_score }
+      : computeRisk(match);
     const payload = {
       name: match.name ?? report.query?.name ?? 'unknown',
       ecosystem: report.query?.ecosystem ?? 'unknown',
       description: match.description,
       repository_url: match.repository ?? match.officialSite ?? null,
-      official_site: match.officialSite ?? null,
+      officialSite: match.officialSite ?? null,
       versions: [
         {
           version: match.version ?? report.query?.version ?? 'unknown',
@@ -181,45 +235,180 @@ function createServer() {
   server.registerTool('library-detail', { title: 'Get library detail', description: 'Fetch a single library by Mongo id', inputSchema: { type: 'object', required: ['libraryId'], properties: { libraryId: { type: 'string' } }, additionalProperties: false } }, libraryDetailHandler);
   localToolHandlers['library-detail'] = libraryDetailHandler;
 
+  const riskScoreHandler = async ({ pkg }) => {
+    if (!pkg) throw new Error('pkg is required');
+    const scored = await scoreLibraryRisk(pkg);
+    return {
+      content: [{ type: 'text', text: JSON.stringify(scored, null, 2) }],
+      structuredContent: scored
+    };
+  };
+  server.registerTool('risk-score', {
+    title: 'Risk score with LLM',
+    description: 'Calculate risk score for a library/package JSON using LLM prompt',
+    inputSchema: {
+      type: 'object',
+      required: ['pkg'],
+      properties: {
+        pkg: { type: 'object', description: 'LicenGuard-style package JSON' }
+      },
+      additionalProperties: false
+    }
+  }, riskScoreHandler);
+  localToolHandlers['risk-score'] = riskScoreHandler;
+
   const discoverLibraryInfoHandler = async payload => {
     logInfo('[mcp] discover-library-info payload', JSON.stringify(payload));
     try {
+      const parseNameVersion = (value) => {
+        if (!value) return { name: null, version: null };
+        const m = value.match(/^(.*?)[@\s]+v?([\w.\-]+)/i);
+        if (m) return { name: m[1].trim(), version: m[2].trim() };
+        return { name: value, version: null };
+      };
+      const tokens = parseNameVersion(payload.name);
+      const requestedName = tokens.name ?? payload.name;
+      const requestedVersion = payload.version ?? tokens.version ?? null;
+      const normalizeName = (match) => {
+        const isGo = (match.ecosystem || '').toLowerCase().includes('go');
+        if (isGo && requestedName && !requestedName.includes('/') && match.name?.includes('/')) {
+          return { ...match, name: requestedName };
+        }
+        return match;
+      };
+
       // Try Mongo first to avoid unnecessary AI calls
-      const q = payload.version ? `${payload.name}@${payload.version}` : payload.name;
+      const q = requestedVersion ? `${requestedName}@${requestedVersion}` : requestedName;
       try {
         const mongoResult = await searchLibrary(q);
         if (mongoResult?.results && mongoResult.results.length > 0) {
-          logInfo('[mcp] discover-library-info served from Mongo', q);
-          return {
-            content: [{ type: 'text', text: JSON.stringify(mongoResult, null, 2) }],
-            structuredContent: mongoResult
-          };
+          const requestedVersionNorm = requestedVersion ? requestedVersion.replace(/^v/i, '') : null;
+          const hasExactVersion = requestedVersionNorm
+            ? mongoResult.results.some(r =>
+                Array.isArray(r.versions) &&
+                r.versions.some(v => (v.version || '').replace(/^v/i, '').toLowerCase() === requestedVersionNorm.toLowerCase())
+              )
+            : true;
+          if (hasExactVersion) {
+            logInfo('[mcp] discover-library-info served from Mongo', q, JSON.stringify(mongoResult.results));
+            return {
+              content: [{ type: 'text', text: JSON.stringify(mongoResult, null, 2) }],
+              structuredContent: mongoResult
+            };
+          }
+          logInfo('[mcp] discover-library-info mongo hit but version mismatch, continuing to LLM', { q, requestedVersion });
         }
       } catch (err) {
         logError('[mcp] discover-library-info Mongo lookup failed', err);
       }
 
-      const report = await discoverLibraryInfo(payload);
-      logInfo('[mcp] discover-library-info result', JSON.stringify(report));
-      const matchesWithRisk = (Array.isArray(report.matches) ? report.matches : []).map(m => {
-        const risk = computeRisk(m);
-        return {
-          ...m,
-          risk_level: risk.level,
-          risk_score: risk.score
-        };
+      const report = await discoverLibraryInfo({
+        name: requestedName,
+        version: requestedVersion
       });
-      let bestMatch = matchesWithRisk.length > 0 ? matchesWithRisk[0] : null;
-      if (matchesWithRisk.length > 1) {
-        bestMatch = matchesWithRisk.reduce((a, b) => (b.confidence > (a.confidence ?? 0) ? b : a), matchesWithRisk[0]);
+      const rawMatches = Array.isArray(report.matches) ? report.matches : [];
+      const matchesWithBaseRisk = rawMatches.map(m => {
+        const risk = computeRisk(m);
+        return { ...m, risk_level: m.risk_level ?? risk.level, risk_score: m.risk_score ?? risk.score };
+      });
+      // LLM tabanlı risk skorlaması (best-effort; hata olursa mevcut risk kalır)
+      const matches = await Promise.all(
+        matchesWithBaseRisk.map(async m => {
+          const llmRisk = await scoreWithLLM(m);
+          logInfo('[mcp] LLM risk scoring result', { name: m.name, version: m.version, llmRisk: JSON.stringify(llmRisk) });
+          if (llmRisk) {
+            return {
+              ...m,
+              risk_level: llmRisk.risk_level ?? m.risk_level,
+              risk_score: llmRisk.risk_score ?? m.risk_score,
+              // risk_details: llmRisk.risk_details ?? m.risk_details
+            };
+          }
+          return m;
+        })
+      ).then(list => list.map(normalizeName));
+
+      let bestMatch = matches.length > 0 ? matches[0] : null;
+
+      if (matches.length > 1) {
+        bestMatch = matches.reduce((a, b) => (b.confidence > (a.confidence ?? 0) ? b : a), matches[0]);
       }
+
+      if (bestMatch && (bestMatch.risk_level === undefined || bestMatch.risk_score === undefined)) {
+        const risk = computeRisk(bestMatch);
+        bestMatch = { ...bestMatch, risk_level: bestMatch.risk_level ?? risk.level, risk_score: bestMatch.risk_score ?? risk.score };
+      }
+
+      const getMatchKey = (m) =>
+        `${m.name ?? ''}__${m.version ?? ''}__${m.repository ?? ''}__${m.officialSite ?? ''}`;
+      const unique = [];
+      const seen = new Set();
+      const all = bestMatch ? [bestMatch, ...matches] : matches;
+      for (const m of all) {
+        const key = getMatchKey(m);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        unique.push(m);
+      }
+      const finalBestMatch = unique.length > 0 ? unique[0] : null;
+      const normalizeSummary = (licenseSummary) => {
+        if (!licenseSummary) return [];
+        if (Array.isArray(licenseSummary)) {
+          return licenseSummary
+            .map(item =>
+              typeof item === 'object' && item !== null
+                ? { summary: item.summary ?? '', emoji: item.emoji ?? null }
+                : { summary: item, emoji: null }
+            )
+            .filter(entry => typeof entry.summary === 'string' && entry.summary.length > 0);
+        }
+        return [];
+      };
+      const toDbShape = (m) => {
+        const ecoRaw = m.ecosystem ?? payload.ecosystem ?? report.query?.ecosystem ?? 'unknown';
+        const ecoLower = (ecoRaw || '').toLowerCase();
+        let ecoNormalized = ecoRaw;
+        if (ecoLower === 'unknown' && payload.ecosystem) {
+          ecoNormalized = payload.ecosystem;
+        }
+        if (ecoLower.includes('go') || (m.name && m.name.includes('/'))) {
+          ecoNormalized = 'Go';
+        }
+        const officialSite = m.officialSite ?? m.repository ?? payload.officialSite ?? payload.repository ?? null;
+        return {
+          name: m.name,
+          ecosystem: ecoNormalized,
+          description: m.description,
+          repository_url: m.repository ?? null,
+          officialSite: officialSite ?? null,
+          versions: [
+            {
+              version: m.version ?? report.query?.version ?? 'unknown',
+              license_name: m.license ?? null,
+              license_url: m.license_url ?? null,
+              notes: report.summary ?? null,
+              license_summary: normalizeSummary(m.licenseSummary),
+              evidence: Array.isArray(m.evidence) ? m.evidence : [],
+              confidence: m.confidence ?? null,
+              risk_level: m.risk_level,
+              risk_score: m.risk_score,
+              // risk_details: m.risk_details ?? null
+            }
+          ]
+        };
+      };
+
+      const formattedMatches = unique.map(toDbShape);
+      const formattedBestMatch = finalBestMatch ? toDbShape(finalBestMatch) : null;
+
       const response = {
         query: report.query,
-        matches: matchesWithRisk,
-        bestMatch,
+        matches: formattedBestMatch,
+        // bestMatch: formattedBestMatch,
         summary: report.summary
       };
       if (AUTO_IMPORT_ENABLED && bestMatch) await persistDiscovery({ ...report, matches: [bestMatch] });
+      logInfo('[mcp] discover-library-info response', JSON.stringify(response));
       return { content: [{ type: 'text', text: JSON.stringify(response, null, 2) }], structuredContent: response };
     } catch (error) {
       logError('[mcp] discover-library-info error', error);

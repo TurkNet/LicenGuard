@@ -44,6 +44,11 @@ export function parseGoMod(text) {
   const deps = [];
   const lines = text.split(/\r?\n/);
   let inRequireBlock = false;
+  const stripHost = (value) => {
+    if (!value) return value;
+    const match = value.match(/^[^/]+\/(.+)/);
+    return match ? match[1] : value;
+  };
   for (const raw of lines) {
     const line = raw.trim();
     if (!line || line.startsWith("//")) continue;
@@ -57,12 +62,12 @@ export function parseGoMod(text) {
     }
     if (line.startsWith("require ")) {
       const parts = line.replace(/^require\s+/, "").split(/\s+/);
-      if (parts[0]) deps.push({ name: parts[0], version: parts[1] ?? null });
+      if (parts[0]) deps.push({ name: stripHost(parts[0]), full_name: parts[0], version: parts[1] ?? null });
       continue;
     }
     if (inRequireBlock) {
       const parts = line.split(/\s+/);
-      if (parts[0]) deps.push({ name: parts[0], version: parts[1] ?? null });
+      if (parts[0]) deps.push({ name: stripHost(parts[0]), full_name: parts[0], version: parts[1] ?? null });
     }
   }
   return deps;

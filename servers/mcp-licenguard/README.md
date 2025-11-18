@@ -34,6 +34,16 @@ During discovery, the MCP server calculates a simple license risk:
 
 Both `risk_level` and `risk_score` are persisted on versions and returned in MCP responses. Use these to gate CI/CD (e.g., fail on `risk_level === 'high'` or `risk_score >= threshold`).
 
+### LLM-based detailed risk scoring
+
+In addition to the heuristic above, the MCP server calls the LLM with `scoreLibraryRisk` (`servers/mcp-licenguard/src/services/riskScoring.js`) to produce a richer breakdown:
+
+- Input: the discovered package JSON (name, ecosystem, official site/repo, versions, license summary/evidence, existing risk values).
+- Output: `risk_score`/`risk_level` plus sub-scores (`license_risk_score`, `security_risk_score`, `maintenance_risk_score`, `usage_context_risk_score`), `key_factors`, `recommended_actions`, and a `confidence`.
+- The returned object is attached to matches as `risk_details` and `risk_score`/`risk_level` are reused for UI/API consumers.
+
+The same LLM config/env vars (`OPENAI_*` or `LOCAL_LLM_*`) are used for both discovery and risk scoring.
+
 ## Transports
 
 The server now speaks both STDIO and the Streamable HTTP transport:

@@ -1,76 +1,34 @@
-import fetch from "node-fetch";
-
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_API_URL =
-  process.env.OPENAI_API_URL ?? "https://api.openai.com/v1/chat/completions";
-const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-
-const LOCAL_LLM_API_KEY = process.env.LOCAL_LLM_API_KEY;
-const LOCAL_LLM_API_URL = process.env.LOCAL_LLM_API_URL;
-const LOCAL_LLM_MODEL = process.env.LOCAL_LLM_MODEL; // optional for local
-const LOCAL_LLM_AUTH_HEADER = process.env.LOCAL_LLM_AUTH_HEADER; // default X-API-Key
-const LOCAL_LLM_AUTH_PREFIX = process.env.LOCAL_LLM_AUTH_PREFIX; // e.g. Bearer / Token / (empty for raw key)
-const LOCAL_LLM_EXTRA_HEADERS_RAW = process.env.LOCAL_LLM_EXTRA_HEADERS;
-
-let LOCAL_LLM_EXTRA_HEADERS = { "X-Request-Source": "post_text_script" };
-if (LOCAL_LLM_EXTRA_HEADERS_RAW) {
-  try {
-    const normalized =
-      LOCAL_LLM_EXTRA_HEADERS_RAW.trim().startsWith("'") &&
-      LOCAL_LLM_EXTRA_HEADERS_RAW.trim().endsWith("'")
-        ? LOCAL_LLM_EXTRA_HEADERS_RAW.trim().slice(1, -1)
-        : LOCAL_LLM_EXTRA_HEADERS_RAW;
-    const parsed = JSON.parse(normalized);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      LOCAL_LLM_EXTRA_HEADERS = parsed;
-    }
-  } catch (err) {
-    console.warn("[mcp] LOCAL_LLM_EXTRA_HEADERS parse failed; ignoring", err?.message);
-  }
-}
+import { callChat, getActiveLlmInfo, llmEnv } from './llmClient.js';
+export { getActiveLlmInfo } from './llmClient.js';
 
 const RESPONSE_LANGUAGE = process.env.RESPONSE_LANGUAGE ?? "English";
-const USING_LOCAL_LLM = Boolean(LOCAL_LLM_API_URL && LOCAL_LLM_API_KEY);
-const CHAT_API_KEY = USING_LOCAL_LLM ? LOCAL_LLM_API_KEY : OPENAI_API_KEY;
-const CHAT_API_URL = USING_LOCAL_LLM ? LOCAL_LLM_API_URL : OPENAI_API_URL;
-const CHAT_MODEL = USING_LOCAL_LLM ? LOCAL_LLM_MODEL : OPENAI_MODEL;
-
-export function getActiveLlmInfo() {
-  return {
-    provider: USING_LOCAL_LLM ? "local" : "openai",
-    apiUrl: CHAT_API_URL,
-    model: CHAT_MODEL ?? null,
-    keyPresent: Boolean(CHAT_API_KEY),
-    localEnabled: USING_LOCAL_LLM,
-    authHeader: USING_LOCAL_LLM
-      ? LOCAL_LLM_AUTH_HEADER?.trim() || "X-API-Key"
-      : "Authorization",
-    authPrefix:
-      USING_LOCAL_LLM && LOCAL_LLM_AUTH_PREFIX !== undefined
-        ? LOCAL_LLM_AUTH_PREFIX
-        : USING_LOCAL_LLM
-          ? ""
-          : "Bearer",
-    extraHeaders: USING_LOCAL_LLM ? Object.keys(LOCAL_LLM_EXTRA_HEADERS) : [],
-  };
-}
 
 const SYSTEM_PROMPT = `You are an OSS discovery assistant. Given a library name, optional version, ecosystem, and notes,
 you search the public internet (docs, GitHub, package registries) to find the most likely matching projects.
 
-When searching npm packages, consult authoritative registry data (e.g., npm view <pkg> versions, license, repository) to populate version/license details accurately. For Python packages, consult tooling such as \`pip show <pkg>\` / \`pip3 show <pkg>\` (and language-appropriate equivalents for other ecosystems) to retrieve version, license, and repository details when possible.
+When searching:
+- npm packages: consult registry data (e.g., \`npm view <pkg>\`) for versions/license/repo.
+- Python: \`pip show <pkg>\` / \`pip3 show <pkg>\` / PyPI JSON.
+- Maven/Java: inspect Maven Central/pom.xml for group/artifact, versions, license, repo.
+- Go: inspect go.mod and GitHub; prefer module path language (Go) over similarly named npm packages.
+- Rust: use crates.io/Cargo.toml for license/repo/version.
+- NuGet/.NET: use nuget.org metadata or .csproj for license/repo/version.
+- Ruby: rubygems.org gem info for license/repo/version.
+- PHP: packagist/ composer.json for license/repo/version.
+- iOS: cocoapods specs for license/repo/version.
+- Gradle/Kotlin: build.gradle(.kts)/Maven metadata for license/repo/version.
+- Go to official repo/site URLs when provided; detect language signals (go.mod, Cargo.toml, package.json, pom.xml, README language badges). Prefer the repo’s language/ecosystem and set query.ecosystem accordingly.
 
 Return JSON with the following structure:
 {
   "query": {
     "name": "...",
-    "version": "...",
-    "ecosystem": "...", // npm, pypi, maven, nuget, etc.
-    "notes": "..."
+    "version": "..."
   },
   "matches": [
     {
       "name": "string",
+      "ecosystem": "JavaScript / Node.js | Python | Go | ...",
       "officialSite": "https://...",
       "repository": "https://github.com/...",
       "version": "string",
@@ -92,18 +50,21 @@ If the user provides ecosystem/version as unknown or omits them, infer them wher
 - Set query.ecosystem to the detected package manager (npm/pypi/maven/nuget/etc.) if you can infer from sources; avoid "unknown" when evidence exists.
 - Set query.version to the best version you report (e.g., the latest stable) instead of "unknown".
 - Always set \`ecosystem\` (on query and on every match) using this mapping:
-- npm → "JavaScript / Node.js"
-- pypi → "Python"
-- maven → "Java / JVM"
-- nuget → ".NET"
-- rubygems → "Ruby"
-- crates → "Rust"
-- packagist → "PHP"
-- cocoapods → "iOS / Swift / Obj-C"
-- gradle → "Java / Kotlin"
-- go → "Go"
-- Use repository metadata to infer ecosystem: look at GitHub/GitLab language badges, repo descriptions ("A Commander for modern Go CLI interactions"), presence of go.mod (Go), Cargo.toml (Rust), package.json (JavaScript), requirements.txt (Python), pom.xml (Java), .csproj (C#/.NET). Prefer the language the repository is written in over similarly named packages in other ecosystems.
-- If the official repository clearly indicates a language/framework (e.g., Go project with go.mod and "Go CLI" description) but a similarly named npm package exists, prefer the repository’s language and map ecosystem accordingly (Go → "Go") instead of defaulting to JavaScript.
+  - npm → "JavaScript / Node.js"
+  - pypi → "Python"
+  - maven → "Java / JVM"
+  - nuget → ".NET"
+  - rubygems → "Ruby"
+  - crates → "Rust"
+  - packagist → "PHP"
+  - cocoapods → "iOS / Swift / Obj-C"
+  - gradle → "Java / Kotlin"
+  - go → "Go"
+- Use repository metadata (and official site if present) to infer ecosystem: check GitHub/GitLab language badges, repo descriptions ("A Commander for modern Go CLI interactions"), presence of go.mod (Go), Cargo.toml (Rust), package.json (JavaScript), requirements.txt (Python), pom.xml (Java), .csproj (C#/.NET), etc. Prefer the repository’s language over similarly named packages in other ecosystems.
+- If the user passes a module path with a slash (e.g., "spf13/cobra") or a repo/module already indicates a language (e.g., go.mod / Cargo.toml), keep the original name (do not drop the owner/namespace) and set ecosystem accordingly (e.g., "Go"). Avoid renaming/shortening package names; preserve the user-provided name unless authoritative evidence shows it is incorrect.
+- If repository URL is found and officialSite is empty/unknown, set officialSite to repository URL.
+- When repo/site content clearly shows a language/framework (e.g., go.mod + "Go CLI" in README, Maven pom.xml, Cargo.toml, package.json), trust that signal over similarly named packages in other ecosystems. Describe the project in that language’s context (e.g., a Go repo should not be described as JavaScript). Preserve the full module name (including owner/namespace) provided by the user.
+- Also use package description text to infer ecosystem: if description mentions a specific language/framework (e.g., Python, Django, FastAPI, Flask), set ecosystem accordingly (e.g., Python). Avoid leaving ecosystem as "unknown" when language evidence exists.
 
 When providing licenseSummary, favor concise bullet points like:
 [
@@ -131,99 +92,27 @@ Open-source licensing and copyleft guidance:
 `;
 
 export async function discoverLibraryInfo({ name, version, ecosystem, notes }) {
-  if (!CHAT_API_KEY) {
-    throw new Error(
-      "Missing API key: configure LOCAL_LLM_API_KEY/LOCAL_LLM_API_URL for local usage or OPENAI_API_KEY for OpenAI."
-    );
-  }
-  if (!CHAT_API_URL) {
-    throw new Error(
-      "Missing chat API URL: configure LOCAL_LLM_API_URL for local usage or OPENAI_API_URL for OpenAI."
-    );
-  }
-
-  const body = {
-    temperature: 0.1,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: `Library: ${name}
+  const userContent = `Library: ${name}
         Version: ${version ?? "unknown"}
-        Ecosystem: ${ecosystem ?? "unknown"}
-        Notes: ${notes ?? "n/a"}
-
-        Return JSON as specified.`,
-      },
-    ],
-  };
-
-  if (CHAT_MODEL) {
-    body.model = CHAT_MODEL;
-  }
-
-  const headers = { "Content-Type": "application/json" };
-
-  if (USING_LOCAL_LLM) {
-    const headerName = LOCAL_LLM_AUTH_HEADER?.trim() || "X-API-Key";
-    const prefix = LOCAL_LLM_AUTH_PREFIX ?? "";
-    headers[headerName] =
-      prefix.trim()
-        ? `${prefix.trim()} ${CHAT_API_KEY}`
-        : CHAT_API_KEY;
-  } else {
-    headers.Authorization = `Bearer ${CHAT_API_KEY}`;
-  }
-
-  if (USING_LOCAL_LLM && LOCAL_LLM_EXTRA_HEADERS && typeof LOCAL_LLM_EXTRA_HEADERS === "object") {
-    Object.assign(headers, LOCAL_LLM_EXTRA_HEADERS);
-  }
-
-  const redactedHeaders = Object.fromEntries(
-    Object.entries(headers).map(([key, value]) => {
-      if (typeof value === "string" && CHAT_API_KEY && value.includes(CHAT_API_KEY)) {
-        return [key, value.replace(CHAT_API_KEY, "[redacted]")];
-      }
-      return [key, value];
-    })
-  );
-
-  const response = await fetch(CHAT_API_URL, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const message = await response.text();
-    console.error(
-      "[mcp] LLM request failed",
-      response.status,
-      response.statusText,
-      message?.slice?.(0, 200),
-      {
-        url: CHAT_API_URL,
-        model: CHAT_MODEL ?? "unspecified",
-        provider: USING_LOCAL_LLM ? "local" : "openai",
-        headers: redactedHeaders,
-        bodyPreview: JSON.stringify(body)?.slice?.(0, 500),
-      }
-    );
-    throw new Error(
-      message || `LLM request failed (${response.status} ${response.statusText})`
-    );
-  }
-
-  const payload = await response.json();
-  const content = payload.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error("LLM response missing content");
-  }
+        Return JSON as specified.`;
 
   try {
+    const content = await callChat({
+      temperature: 0.1,
+      responseFormat: { type: "json_object" },
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userContent }
+      ]
+    });
     return JSON.parse(content);
   } catch (error) {
-    throw new Error(`Unable to parse LLM JSON: ${error.message}`);
+    console.error("[mcp] discoverLibraryInfo LLM failed", {
+      error: error?.message,
+      apiUrl: llmEnv.CHAT_API_URL,
+      model: llmEnv.CHAT_MODEL,
+      usingLocal: llmEnv.USING_LOCAL_LLM
+    });
+    throw error;
   }
 }
