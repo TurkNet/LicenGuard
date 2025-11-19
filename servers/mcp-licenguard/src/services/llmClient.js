@@ -1,5 +1,3 @@
-import fetch from 'node-fetch';
-
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_API_URL = process.env.OPENAI_API_URL ?? 'https://api.openai.com/v1/chat/completions';
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
@@ -61,8 +59,9 @@ export async function callChat({ messages, temperature = 0, responseFormat = { t
     if (USING_LOCAL_LLM) {
       const headerName = LOCAL_LLM_AUTH_HEADER?.trim() || 'X-API-Key';
       const prefix = LOCAL_LLM_AUTH_PREFIX ?? '';
-      headers[headerName] = prefix.trim() ? `${prefix.trim()} ${CHAT_API_KEY}` : CHAT_API_KEY;
+      const cleanApiKey = String(CHAT_API_KEY || '').replace(/[\r\n]/g, '').trim();
       Object.assign(headers, LOCAL_LLM_EXTRA_HEADERS);
+      headers[headerName] = prefix.trim() ? `${prefix.trim()} ${cleanApiKey}` : cleanApiKey;
     } else {
       headers.Authorization = `Bearer ${CHAT_API_KEY}`;
     }
