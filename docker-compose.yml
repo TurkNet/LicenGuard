@@ -1,0 +1,100 @@
+services:
+  # MongoDB Database
+  mongo:
+    image: mongo:6
+    container_name: licenguard-mongo
+    environment:
+      MONGO_INITDB_DATABASE: licenguard
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+    restart: unless-stopped
+    networks:
+      - licenguard-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/licenguard --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API (FastAPI)
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: licenguard-api
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/licenguard
+      MONGODB_DB: licenguard
+      MCP_HTTP_URL: http://mcp:3333/mcp
+    env_file:
+      - ./backend/.env
+    ports:
+      - "4000:4000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - licenguard-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Frontend (React)
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        API_URL: http://localhost:4000
+    container_name: licenguard-web
+    env_file:
+      - ./apps/web/.env
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - licenguard-network
+
+  # MCP Server
+  mcp:
+    build:
+      context: ./servers/mcp-licenguard
+      dockerfile: Dockerfile
+    container_name: licenguard-mcp
+    environment:
+      API_URL: http://api:4000
+      MCP_HTTP_ENABLED: "true"
+      MCP_HTTP_PORT: "3333"
+      MCP_HTTP_HOST: "0.0.0.0"
+      MCP_HTTP_PATH: "/mcp"
+      MCP_STDIO_ENABLED: "false"
+      MCP_AUTO_IMPORT: "false"
+      LOCAL_LLM_API_KEY: ""
+      LOCAL_LLM_AUTH_HEADER: "X-API-Key"
+      LOCAL_LLM_API_URL: ""
+      RESPONSE_LANGUAGE: "Turkish"
+    ports:
+      - "3333:3333"
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - licenguard-network
+
+volumes:
+  mongo-data:
+    driver: local
+
+networks:
+  licenguard-network:
+    driver: bridge
+
