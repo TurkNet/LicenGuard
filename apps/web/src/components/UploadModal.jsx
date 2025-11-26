@@ -1,11 +1,12 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { analyzeFileUpload, searchLibraries, createLibrary } from '../api/client.js';
 
-const RiskBar = ({ score }) => {
+const RiskBar = ({ score, explanation }) => {
   if (score === undefined || score === null || Number.isNaN(score)) return null;
   const clamped = Math.min(100, Math.max(0, Number(score)));
+  const tooltip = explanation || `Risk score: ${clamped}`;
   return (
-    <div className="risk-gauge risk-gauge--compact risk-gauge--inline" title={`Risk score: ${clamped}`}>
+    <div className="risk-gauge risk-gauge--compact risk-gauge--inline" title={tooltip}>
       <div className="risk-gauge__track">
         <div className="risk-gauge__gradient" />
         <div className="risk-gauge__overlay" style={{ width: `${clamped}%` }} />
@@ -79,7 +80,11 @@ export default function UploadModal({ isOpen, onClose, onImported }) {
     else if (hasPermissive) { level = 'low'; base = 10; }
     const confidence = typeof match.confidence === 'number' ? match.confidence : 1;
     const score = Math.min(100, Math.max(0, Math.round(base * confidence)));
-    return { level, score };
+    let explanation = `${level} risk — score ${score}/100`;
+    if (hasStrong) explanation += ' (strong copyleft belirtileri)';
+    else if (hasWeak) explanation += ' (zayıf copyleft belirtileri)';
+    else if (hasPermissive) explanation += ' (permissive lisans işaretleri)';
+    return { level, score, explanation };
   }, []);
 
   const formatVersion = (job) => {
@@ -118,8 +123,9 @@ export default function UploadModal({ isOpen, onClose, onImported }) {
             status: 'pending',
             message: null,
             match: null,
-            risk_score: null,
-            risk_level: null
+            risk_score: dep.risk_score ?? null,
+            risk_level: dep.risk_level ?? null,
+            risk_score_explanation: dep.risk_score_explanation ?? null
           }));
           setDepJobs(jobs);
         }
@@ -163,7 +169,8 @@ export default function UploadModal({ isOpen, onClose, onImported }) {
             evidence: v?.evidence ?? [],
             confidence: v?.confidence,
             risk_level: v?.risk_level,
-            risk_score: v?.risk_score
+            risk_score: v?.risk_score,
+            risk_score_explanation: v?.risk_score_explanation
           };
         } else if (res?.source === 'mcp' && Array.isArray(res?.results) && res.results.length > 0) {
           const lib = res.results[0];
@@ -181,6 +188,7 @@ export default function UploadModal({ isOpen, onClose, onImported }) {
             confidence: v?.confidence,
             risk_level: v?.risk_level,
             risk_score: v?.risk_score,
+            risk_score_explanation: v?.risk_score_explanation,
             officialSite: lib.officialSite
           };
         } else if (res?.discovery?.matches?.length) {
@@ -191,9 +199,11 @@ export default function UploadModal({ isOpen, onClose, onImported }) {
           setProcessing(false);
           return;
         }
+        const computedRisk = computeRisk(match);
         const risk = {
-          level: match.risk_level ?? computeRisk(match).level,
-          score: match.risk_score ?? computeRisk(match).score
+          level: match.risk_level ?? computedRisk.level,
+          score: match.risk_score ?? computedRisk.score,
+          explanation: match.risk_score_explanation ?? computedRisk.explanation
         };
         if (existing || res?.source === 'mongo') {
           updateJob(next.id, {
@@ -201,12 +211,13 @@ export default function UploadModal({ isOpen, onClose, onImported }) {
             message: 'Zaten kayıtlı',
             match,
             risk_level: risk.level,
-            risk_score: risk.score
+            risk_score: risk.score,
+            risk_score_explanation: risk.explanation
           });
           setProcessing(false);
           return;
         }
-        updateJob(next.id, { status: 'importing', match, risk_level: risk.level, risk_score: risk.score });
+        updateJob(next.id, { status: 'importing', match, risk_level: risk.level, risk_score: risk.score, risk_score_explanation: risk.explanation });
         const payload = {
           name: match.name ?? next.name,
           ecosystem: match.ecosystem ?? res?.discovery?.query?.ecosystem ?? 'unknown',
@@ -231,7 +242,8 @@ export default function UploadModal({ isOpen, onClose, onImported }) {
               confidence: match.confidence ?? null,
               evidence: Array.isArray(match.evidence) ? match.evidence : [],
               risk_level: risk.level,
-              risk_score: risk.score
+              risk_score: risk.score,
+              risk_score_explanation: risk.explanation
             }
           ]
         };
@@ -299,7 +311,9 @@ export default function UploadModal({ isOpen, onClose, onImported }) {
                         {job.message && <span style={{ color: '#cbd5f5', fontSize: '0.85rem' }}>{job.message}</span>}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        {job.risk_score !== null && job.risk_score !== undefined && <RiskBar score={job.risk_score} />}
+                        {job.risk_score !== null && job.risk_score !== undefined && (
+                          <RiskBar score={job.risk_score} explanation={job.risk_score_explanation || job.match?.risk_score_explanation} />
+                        )}
                         {job.status === 'done' && <span style={{ color: '#22c55e' }}>✓</span>}
                         {job.status === 'error' && <span style={{ color: '#f87171' }}>!</span>}
                         {job.status === 'searching' && <span style={{ color: '#eab308' }}>Aranıyor…</span>}

@@ -1,29 +1,95 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-const LICENSE_GUIDES = {
-  'bsd-2-clause': {
-    title: 'BSD-2-Clause lisansı',
-    bullets: [
-      { icon: '✅', text: 'Ticari kullanıma izin verir' },
-      { icon: '✅', text: 'Değiştirilmiş versiyonları dağıtabilirsiniz' },
-      { icon: '✅', text: 'Özel kullanım için serbest' },
-      { icon: '⚠️', text: 'Lisans ve telif hakkı bildirimi gereklidir' }
-    ]
-  }
-};
 
 const getLicenseGuide = (licenseName) => {
   if (!licenseName) return null;
-  return LICENSE_GUIDES[licenseName.toLowerCase()] ?? null;
+  return licenseName.toLowerCase() ?? null;
 };
 
-const RiskGauge = ({ score, level, compact = false, needleless = false }) => {
+const normalizeVersion = (value = '') => value.replace(/^[~^><=\s]+/, '').replace(/^v/i, '').trim();
+const compareVersionsDesc = (a, b) => {
+  const left = normalizeVersion(a.version || '');
+  const right = normalizeVersion(b.version || '');
+  const split = (v) => v.split('.').map(part => {
+    const num = Number(part);
+    return Number.isFinite(num) ? num : part;
+  });
+  const lParts = split(left);
+  const rParts = split(right);
+  const len = Math.max(lParts.length, rParts.length);
+  for (let i = 0; i < len; i += 1) {
+    const l = lParts[i] ?? 0;
+    const r = rParts[i] ?? 0;
+    if (typeof l === 'number' && typeof r === 'number') {
+      if (l !== r) return r - l; // desc numeric
+    } else {
+      const lStr = String(l);
+      const rStr = String(r);
+      if (lStr !== rStr) return rStr.localeCompare(lStr); // desc lexicographic fallback
+    }
+  }
+  return 0;
+};
+
+const describeComponentLevel = (score, max) => {
+  if (score === null || score === undefined) {
+    return {
+      label: 'N/A',
+      icon: '⬜',
+      bg: 'linear-gradient(135deg, #cbd5e1, #94a3b8)',
+      border: '#94a3b8',
+      text: '#111827'
+    };
+  }
+  const ratio = score / max;
+  if (ratio >= 0.7) {
+    return {
+      label: 'critical',
+      icon: '🟥',
+      bg: 'linear-gradient(135deg, #f87171, #e74c3c)',
+      border: '#e74c3c',
+      text: '#fff'
+    };
+  }
+  if (ratio >= 0.5) {
+    return {
+      label: 'high',
+      icon: '🟧',
+      bg: 'linear-gradient(135deg, #f59e0b, #d97706)',
+      border: '#e67e22',
+      text: '#fff'
+    };
+  }
+  if (ratio >= 0.3) {
+    return {
+      label: 'medium',
+      icon: '🟨',
+      bg: 'linear-gradient(135deg, #f8d86b, #f1c40f)',
+      border: '#eab308',
+      text: '#111827'
+    };
+  }
+  return {
+    label: 'low',
+    icon: '🟩',
+    bg: 'linear-gradient(135deg, #34d399, #22c55e)',
+    border: '#22c55e',
+    text: '#0f172a'
+  };
+};
+
+const RiskGauge = ({ score, level, compact = false, needleless = false, explanation }) => {
   if (score === undefined || score === null || Number.isNaN(score)) return null;
   const clamped = Math.min(100, Math.max(0, Number(score)));
   const needlePos = `${clamped}%`;
   const label = level ? `${level} (${clamped})` : `${clamped}`;
+  const tooltip = explanation || `Risk: ${label}`;
   return (
-    <div className={`risk-gauge ${compact ? 'risk-gauge--compact' : ''}`} aria-label={`Risk: ${label}`} title={`Risk: ${label}`}>
+    <div
+      className={`risk-gauge ${compact ? 'risk-gauge--compact' : ''}`}
+      aria-label={`Risk: ${label}`}
+      title={tooltip}
+    >
       <div className="risk-gauge__track">
         <div className="risk-gauge__gradient" />
         {!needleless && <div className="risk-gauge__needle" style={{ left: needlePos }} />}
@@ -49,10 +115,33 @@ export default function LibrarySummary({ libraries = [] }) {
     [libraries, selectedLibraryId]
   );
 
+  const sortedSelectedLibraryVersions = useMemo(() => {
+    if (!selectedLibrary) return [];
+    return [...selectedLibrary.versions].sort(compareVersionsDesc);
+  }, [selectedLibrary]);
+
   const selectedVersion = useMemo(() => {
     if (!selectedLibrary) return null;
-    return selectedLibrary.versions.find(version => version.version === selectedVersionId) ?? null;
-  }, [selectedLibrary, selectedVersionId]);
+    const target = sortedSelectedLibraryVersions.find(version => version.version === selectedVersionId);
+    return target ?? null;
+  }, [selectedLibrary, selectedVersionId, sortedSelectedLibraryVersions]);
+
+  const versionRiskComponents = useMemo(() => {
+    if (!selectedVersion) return [];
+    const get = (key) => {
+      if (selectedVersion[key] !== undefined) return selectedVersion[key];
+      if (selectedVersion.risk_details && selectedVersion.risk_details[key] !== undefined) {
+        return selectedVersion.risk_details[key];
+      }
+      return null;
+    };
+    return [
+      { label: 'License Risk', score: get('license_risk_score'), max: 40 },
+      { label: 'Security Risk', score: get('security_risk_score'), max: 30 },
+      { label: 'Maintenance Risk', score: get('maintenance_risk_score'), max: 20 },
+      { label: 'Usage Context Risk', score: get('usage_context_risk_score'), max: 10 }
+    ];
+  }, [selectedVersion]);
 
   useEffect(() => {
     if (!selectedLibrary) {
@@ -171,7 +260,8 @@ export default function LibrarySummary({ libraries = [] }) {
             <ul className="summary-list summary-list--clickable summary-list--grid3">
               {libraries.map(library => {
                 const libraryId = library.id ?? library._id;
-                const recentVersions = library.versions.slice(-6);
+                const sortedVersions = [...library.versions].sort(compareVersionsDesc);
+                const recentVersions = sortedVersions.slice(0, 6); // highest on the left
                 return (
                   <li key={libraryId}>
                     <button type="button" className="summary-row" onClick={() => setSelectedLibraryId(libraryId)}>
@@ -267,10 +357,11 @@ export default function LibrarySummary({ libraries = [] }) {
                 ))}
               </div>
               <ul className="version-list">
-                {selectedLibrary.versions.map(version => {
+                {sortedSelectedLibraryVersions.map(version => {
                   const isSelected = selectedVersionId === version.version;
                   const riskScore = version.risk_score ?? null;
                   const riskLevel = version.risk_level ?? null;
+                  const riskExplanation = version.risk_score_explanation ?? null;
                   return (
                     <li key={`${selectedLibrary.id ?? selectedLibrary._id}-${version.version}`}>
                       <button
@@ -285,7 +376,13 @@ export default function LibrarySummary({ libraries = [] }) {
                         <div className="version-row__meta">
                           {riskScore !== null && (
                             <div className="version-row__risk">
-                              <RiskGauge score={riskScore} level={riskLevel} compact needleless />
+                              <RiskGauge
+                                score={riskScore}
+                                level={riskLevel}
+                                explanation={riskExplanation}
+                                compact
+                                needleless
+                              />
                             </div>
                           )}
                           <span className="version-row__chevron" aria-hidden="true">→</span>
@@ -334,9 +431,53 @@ export default function LibrarySummary({ libraries = [] }) {
                       <RiskGauge
                         score={selectedVersion.risk_score}
                         level={selectedVersion.risk_level}
+                        explanation={selectedVersion.risk_score_explanation}
                         compact
                         needleless
                       />
+                    </dd>
+                  </div>
+                )}
+                {selectedVersion && versionRiskComponents.length > 0 && (
+                  <div>
+                    <dt style={{ alignSelf: 'flex-start' }}>Risk Components</dt>
+                    <dd style={{ textAlign: 'right', marginTop: '0.35rem', lineHeight: 1.5 }}>
+                      {versionRiskComponents.map(comp => {
+                        const hasScore = comp.score !== null && comp.score !== undefined;
+                        const band = describeComponentLevel(comp.score, comp.max);
+                        const badgeStyle = {
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          color: band.text,
+                          minWidth: '90px',
+                          justifyContent: 'center'
+                        };
+                        return (
+                          <div
+                            key={comp.label}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'flex-end',
+                              alignItems: 'center',
+                              gap: '10px',
+                              marginBottom: '4px'
+                            }}
+                          >
+                            <span style={{ fontWeight: 600 }}>{comp.label}:</span>
+                            <span style={{ minWidth: '88px', textAlign: 'right'}}>
+                              {hasScore ? `${comp.score} / ${comp.max}` : '—'}
+                            </span>
+                            <span style={badgeStyle}>
+                              {band.icon} {band.label.toUpperCase()}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </dd>
                   </div>
                 )}

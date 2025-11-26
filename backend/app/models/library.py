@@ -39,6 +39,11 @@ class VersionModel(BaseModel):
     confidence: Optional[float] = Field(default=None, description='Confidence score from the matcher')
     risk_level: Optional[str] = Field(default=None, description='Derived risk bucket (low/medium/high/unknown)')
     risk_score: Optional[float] = Field(default=None, description='Derived risk score 0-100 (higher = stricter)')
+    risk_score_explanation: Optional[str] = Field(default=None, description='Short human-readable explanation of the risk score')
+    license_risk_score: Optional[int] = Field(default=None, description='Component license risk 0-40')
+    security_risk_score: Optional[int] = Field(default=None, description='Component security risk 0-30')
+    maintenance_risk_score: Optional[int] = Field(default=None, description='Component maintenance risk 0-20')
+    usage_context_risk_score: Optional[int] = Field(default=None, description='Component usage-context risk 0-10')
 
 
 class LibraryBase(BaseModel):
