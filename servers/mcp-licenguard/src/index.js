@@ -1,4 +1,6 @@
 import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
@@ -11,7 +13,9 @@ import { scoreLibraryRisk } from './services/riskScoring.js';
 import { callChat } from './services/llmClient.js';
 
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, '.env') });
 const llmInfo = getActiveLlmInfo();
 const logLlmDetails = () => {
   const urlPreview = llmInfo.apiUrl ? llmInfo.apiUrl.replace(/secret|key/gi, '[redacted]') : '(unset)';
@@ -109,7 +113,11 @@ function computeRisk(m) {
   }
   const confidence = typeof m.confidence === 'number' ? m.confidence : 1;
   const score = Math.min(100, Math.max(0, Math.round(base * confidence)));
-  return { level, score };
+  let explanation = `${level} risk — score ${score}/100`;
+  if (hasStrong) explanation += ' (strong copyleft indicators)';
+  else if (hasWeak) explanation += ' (weak/limited copyleft indicators)';
+  else if (hasPermissive) explanation += ' (permissive license indicators)';
+  return { level, score, explanation };
 }
 
 async function scoreWithLLM(match) {
@@ -138,7 +146,8 @@ async function scoreWithLLM(match) {
       return {
         risk_score: scored.risk_score,
         risk_level: scored.risk_level ?? match.risk_level ?? 'unknown',
-        risk_details: scored
+        risk_details: scored,
+        risk_score_explanation: scored.risk_score_explanation
       };
     }
   } catch (err) {
@@ -174,8 +183,9 @@ async function persistDiscovery(report) {
       return [];
     };
     const risk = match.risk_score !== undefined && match.risk_level
-      ? { level: match.risk_level, score: match.risk_score }
+      ? { level: match.risk_level, score: match.risk_score, explanation: match.risk_score_explanation }
       : computeRisk(match);
+    const riskDetails = match.risk_details ?? {};
     const payload = {
       name: match.name ?? report.query?.name ?? 'unknown',
       ecosystem: report.query?.ecosystem ?? 'unknown',
@@ -197,7 +207,12 @@ async function persistDiscovery(report) {
                 ...(match.officialSite ? [`Official site: ${match.officialSite}`] : []),
               ],
           risk_level: risk.level,
-          risk_score: risk.score
+          risk_score: risk.score,
+          risk_score_explanation: risk.explanation,
+          license_risk_score: riskDetails.license_risk_score ?? null,
+          security_risk_score: riskDetails.security_risk_score ?? null,
+          maintenance_risk_score: riskDetails.maintenance_risk_score ?? null,
+          usage_context_risk_score: riskDetails.usage_context_risk_score ?? null
         }
       ]
     };
@@ -321,7 +336,8 @@ function createServer() {
               ...m,
               risk_level: llmRisk.risk_level ?? m.risk_level,
               risk_score: llmRisk.risk_score ?? m.risk_score,
-              // risk_details: llmRisk.risk_details ?? m.risk_details
+              risk_score_explanation: llmRisk.risk_score_explanation ?? m.risk_score_explanation,
+              risk_details: llmRisk.risk_details ?? m.risk_details
             };
           }
           return m;
@@ -392,6 +408,11 @@ function createServer() {
               confidence: m.confidence ?? null,
               risk_level: m.risk_level,
               risk_score: m.risk_score,
+              risk_score_explanation: m.risk_score_explanation,
+              license_risk_score: m.risk_details?.license_risk_score ?? null,
+              security_risk_score: m.risk_details?.security_risk_score ?? null,
+              maintenance_risk_score: m.risk_details?.maintenance_risk_score ?? null,
+              usage_context_risk_score: m.risk_details?.usage_context_risk_score ?? null,
               // risk_details: m.risk_details ?? null
             }
           ]

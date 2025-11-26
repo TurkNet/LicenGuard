@@ -1,8 +1,10 @@
 import path from 'path';
 import HtmlWebpackPlugin from 'html-webpack-plugin';
 import webpack from 'webpack';
+import dotenv from 'dotenv';
 
 const ROOT_DIR = path.dirname(new URL(import.meta.url).pathname);
+dotenv.config({ path: path.resolve(ROOT_DIR, '.env') });
 
 try {
   if (typeof globalThis !== 'undefined' && 'localStorage' in globalThis) {
@@ -88,6 +90,14 @@ export default (env = {}) => {
       historyApiFallback: true,
       client: {
         logging: 'info'
+      },
+      onListening: (server) => {
+        const addr = server.server.address();
+        const host = addr && typeof addr === 'object' ? addr.address : 'localhost';
+        const port = addr && typeof addr === 'object' ? addr.port : 5173;
+        const url = `http://${host === '::' ? 'localhost' : host}:${port}`;
+        // Printed to dev server stdout so it shows in VS Code Debug Console when capturing std
+        console.log(`[LicenGuard Web] dev server running at ${url} (API: ${apiUrl})`);
       }
     }
   };

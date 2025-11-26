@@ -2,10 +2,44 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Backend: FastAPI server",
+      "name": "Launch MCP Server",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/servers/mcp-licenguard/src/index.js",
+      "cwd": "${workspaceFolder}/servers/mcp-licenguard",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["--enable-source-maps"],
+      "envFile": "${workspaceFolder}/servers/mcp-licenguard/.env",
+      "env": {
+        "NODE_ENV": "development",
+        "LOG_LEVEL": "debug",
+        "API_URL": "http://localhost:4000"
+      },
+      "console": "internalConsole",
+      "internalConsoleOptions": "openOnSessionStart",
+      "outputCapture": "std",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Run Web UI (npm run dev)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "${workspaceFolder}/apps/web",
+      "env": {
+        "PATH": "/opt/homebrew/bin:${env:PATH}",
+        "NODE_ENV": "development",
+        "LOG_LEVEL": "debug"
+      },
+      "console": "internalConsole",
+      "outputCapture": "std"
+    },
+    {
+      "name": "Launch API (FastAPI)",
       "type": "debugpy",
       "request": "launch",
-      "pythonPath": "${workspaceFolder}/backend/.venv/bin/python311",
+      "python": "${workspaceFolder}/backend/.venv/bin/python",
       "module": "uvicorn",
       "cwd": "${workspaceFolder}/backend",
       "args": [
@@ -16,38 +50,28 @@
         "4000"
       ],
       "envFile": "${workspaceFolder}/backend/.env",
-      "jinja": true,
+      "console": "internalConsole",
       "justMyCode": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Launch All (MCP + API + Web)",
+      "configurations": [
+        "Launch MCP Server",
+        "Launch API (FastAPI)",
+        "Run Web UI (npm run dev)"
+      ],
+      "stopAll": true
     },
     {
-      "name": "Backend: Seed Mongo sample data",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/backend/seed.py",
-      "cwd": "${workspaceFolder}/backend",
-      "envFile": "${workspaceFolder}/backend/.env",
-      "justMyCode": true
-    },
-    {
-      "name": "Web: Webpack + Chrome",
-      "type": "chrome",
-      "request": "launch",
-      "url": "http://localhost:5173",
-      "webRoot": "${workspaceFolder}/apps/web",
-      "preLaunchTask": "web:dev"
-    },
-    {
-      "name": "MCP Server (Node)",
-      "type": "node",
-      "request": "launch",
-      "program": "${workspaceFolder}/servers/mcp-licenguard/src/index.js",
-      "cwd": "${workspaceFolder}/servers/mcp-licenguard",
-      "runtimeExecutable": "/opt/homebrew/bin/node",
-      "runtimeArgs": ["--enable-source-maps"],
-      "envFile": "${workspaceFolder}/servers/mcp-licenguard/.env",
-      "env": {
-        "API_URL": "http://localhost:4000"
-      }
+      "name": "Restart All (MCP + API + Web)",
+      "configurations": [
+        "Launch MCP Server",
+        "Launch API (FastAPI)",
+        "Run Web UI (npm run dev)"
+      ],
+      "stopAll": true
     }
   ]
 }
