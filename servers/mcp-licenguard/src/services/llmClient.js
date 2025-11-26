@@ -6,10 +6,16 @@ const LOCAL_LLM_API_KEY = process.env.LOCAL_LLM_API_KEY;
 const LOCAL_LLM_API_URL = process.env.LOCAL_LLM_API_URL;
 const LOCAL_LLM_MODEL = process.env.LOCAL_LLM_MODEL;
 const LOCAL_LLM_AUTH_HEADER = process.env.LOCAL_LLM_AUTH_HEADER;
-const LOCAL_LLM_AUTH_PREFIX = process.env.LOCAL_LLM_AUTH_PREFIX;
 const LOCAL_LLM_EXTRA_HEADERS_RAW = process.env.LOCAL_LLM_EXTRA_HEADERS;
 
 let LOCAL_LLM_EXTRA_HEADERS = { 'X-Request-Source': 'mcp' };
+
+const sanitizeHeaderValue = (value, fallback = '') => {
+  if (value === undefined || value === null) return fallback;
+  const cleaned = String(value).replace(/[^\x20-\x7E]/g, '').trim();
+  return cleaned || fallback;
+};
+
 if (LOCAL_LLM_EXTRA_HEADERS_RAW) {
   try {
     const normalized =
@@ -40,10 +46,8 @@ export function getActiveLlmInfo() {
     localEnabled: USING_LOCAL_LLM,
     authHeader: USING_LOCAL_LLM ? LOCAL_LLM_AUTH_HEADER?.trim() || 'X-API-Key' : 'Authorization',
     authPrefix:
-      USING_LOCAL_LLM && LOCAL_LLM_AUTH_PREFIX !== undefined
-        ? LOCAL_LLM_AUTH_PREFIX
-        : USING_LOCAL_LLM
-          ? ''
+      USING_LOCAL_LLM !== undefined
+        ? USING_LOCAL_LLM
           : 'Bearer',
     extraHeaders: USING_LOCAL_LLM ? Object.keys(LOCAL_LLM_EXTRA_HEADERS) : [],
   };
@@ -57,11 +61,11 @@ export async function callChat({ messages, temperature = 0, responseFormat = { t
 
     const headers = { 'Content-Type': 'application/json' };
     if (USING_LOCAL_LLM) {
-      const headerName = LOCAL_LLM_AUTH_HEADER?.trim() || 'X-API-Key';
-      const prefix = LOCAL_LLM_AUTH_PREFIX ?? '';
+      const headerName = sanitizeHeaderValue(LOCAL_LLM_AUTH_HEADER, 'X-API-Key');
+      const prefix = sanitizeHeaderValue(LOCAL_LLM_API_KEY, '');
       const cleanApiKey = String(CHAT_API_KEY || '').replace(/[\r\n]/g, '').trim();
       Object.assign(headers, LOCAL_LLM_EXTRA_HEADERS);
-      headers[headerName] = prefix.trim() ? `${prefix.trim()} ${cleanApiKey}` : cleanApiKey;
+      headers[headerName] = prefix.trim() ? `${prefix.trim()}` : cleanApiKey;
     } else {
       headers.Authorization = `Bearer ${CHAT_API_KEY}`;
     }

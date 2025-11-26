@@ -7,15 +7,30 @@ import fetch from 'node-fetch';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { discoverLibraryInfo, getActiveLlmInfo } from './services/libraryDiscovery.js';
+import { discoverLibraryInfo } from './services/libraryDiscovery.js';
 import { analyzeFile } from './services/fileAnalyzer.js';
 import { scoreLibraryRisk } from './services/riskScoring.js';
+import { getActiveLlmInfo } from './services/llmClient.js';
 import { callChat } from './services/llmClient.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const logInfo = (...args) => console.log(new Date().toISOString(), ...args);
+const logError = (...args) => console.error(new Date().toISOString(), ...args);
+
+logInfo('[mcp] Starting LicenGuard MCP server, instance id', randomUUID());
+logInfo('[mcp] Node.js version:', process.version);
+logInfo('[mcp] Working directory:', process.cwd());
+logInfo('[mcp] __dirname:', __dirname);
+logInfo('[mcp] __filename:', __filename);
+
+
 dotenv.config({ path: path.join(__dirname, '.env') });
+
+logInfo('Dotenv loaded from', path.join(__dirname, '.env'));
+logInfo('LLM config', getActiveLlmInfo());
+
 const llmInfo = getActiveLlmInfo();
 const logLlmDetails = () => {
   const urlPreview = llmInfo.apiUrl ? llmInfo.apiUrl.replace(/secret|key/gi, '[redacted]') : '(unset)';
@@ -33,14 +48,13 @@ const defaultTrue = value => {
   const normalized = value.trim().toLowerCase();
   return !['false', '0', 'no'].includes(normalized);
 };
-const logInfo = (...args) => console.log(new Date().toISOString(), ...args);
-const logError = (...args) => console.error(new Date().toISOString(), ...args);
+
 const API_BASE = process.env.API_URL ?? 'http://localhost:4000';
 const AUTO_IMPORT_ENABLED = defaultTrue(process.env.MCP_AUTO_IMPORT ?? 'false');
 const STDIO_ENABLED = defaultTrue(process.env.MCP_STDIO_ENABLED);
 const HTTP_ENABLED = defaultTrue(process.env.MCP_HTTP_ENABLED);
 const HTTP_PORT = Number(process.env.MCP_HTTP_PORT ?? '3333');
-const HTTP_HOST = process.env.MCP_HTTP_HOST ?? '127.0.0.1';
+const HTTP_HOST = process.env.MCP_HTTP_HOST ?? '0.0.0.0';
 const HTTP_PATH = process.env.MCP_HTTP_PATH ?? '/mcp';
 
 const parseList = (value) =>
@@ -59,8 +73,6 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
 const LOCAL_LLM_API_KEY = process.env.LOCAL_LLM_API_KEY;
 const LOCAL_LLM_API_URL = process.env.LOCAL_LLM_API_URL;
 const LOCAL_LLM_MODEL = process.env.LOCAL_LLM_MODEL;
-const LOCAL_LLM_AUTH_HEADER = process.env.LOCAL_LLM_AUTH_HEADER;
-const LOCAL_LLM_AUTH_PREFIX = process.env.LOCAL_LLM_AUTH_PREFIX;
 const USING_LOCAL_LLM = Boolean(LOCAL_LLM_API_URL && LOCAL_LLM_API_KEY);
 const CHAT_API_KEY = USING_LOCAL_LLM ? LOCAL_LLM_API_KEY : OPENAI_API_KEY;
 const CHAT_API_URL = USING_LOCAL_LLM ? LOCAL_LLM_API_URL : OPENAI_API_URL;

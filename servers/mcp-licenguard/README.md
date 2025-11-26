@@ -18,7 +18,6 @@ Tools:
 If you have an on-prem LLM endpoint, set `LOCAL_LLM_API_URL` and `LOCAL_LLM_API_KEY` in `.env` (optionally `LOCAL_LLM_MODEL`). When these are present, discovery requests are routed to the local endpoint; otherwise the server falls back to OpenAI. For local usage the defaults are `X-API-Key` (no prefix) and a helper header `X-Request-Source: post_text_script`. You can override via:
 
 - `LOCAL_LLM_AUTH_HEADER` (default `X-API-Key`, use e.g. `Authorization`)
-- `LOCAL_LLM_AUTH_PREFIX` (default empty for locals; set `Bearer`/`Token` etc.)
 - `LOCAL_LLM_EXTRA_HEADERS` (JSON object string) to inject additional headers, e.g. `{"X-Request-Source":"post_text_script"}`
 
 ## License risk scoring

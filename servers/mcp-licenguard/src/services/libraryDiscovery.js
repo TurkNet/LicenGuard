@@ -1,5 +1,4 @@
-import { callChat, getActiveLlmInfo, llmEnv } from './llmClient.js';
-export { getActiveLlmInfo } from './llmClient.js';
+import { callChat,  llmEnv } from './llmClient.js';
 
 const RESPONSE_LANGUAGE = process.env.RESPONSE_LANGUAGE ?? "English";
 
