@@ -59,7 +59,7 @@ class MCPHttpClient:
             )
         except MCPClientError as error:
             # If the server reports it is not initialized, reset state and retry once
-            if 'Server not initialized' in str(error):
+            if 'Server not initialized' in str(error) or 'Failed to contact MCP server' in str(error):
                 self._initialized = False
                 self._session_id = None
                 self._protocol_version = None

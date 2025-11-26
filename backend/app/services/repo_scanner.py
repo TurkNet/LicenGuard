@@ -7,7 +7,7 @@ from typing import List, Dict, Any
 
 DEP_FILES = {
     # JavaScript / Node
-    "package.json", "yarn.lock", "package-lock.json", "pnpm-lock.yaml",
+    "package.json", "yarn.lock", "pnpm-lock.yaml",
     # Python
     "requirements.txt", "Pipfile", "pyproject.toml",
     # Java / Kotlin
