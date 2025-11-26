@@ -68,5 +68,7 @@ This builds the API image (installing `requirements.txt` inside the container), 
 - `PATCH /libraries/{libraryId}` – update metadata.
 - `POST /libraries/{libraryId}/versions` – append a version + license info.
 - `GET /libraries/search?q=` – search by name; falls back to the MCP HTTP server to discover new libraries when Mongo has no match.
+- `POST /libraries/repositories/scan` – clone a repo, detect dependency files, and run MCP file analysis over each.
+- `POST /libraries/repositories/scan/highest-risk` – same scan flow as above but returns `highest_risk_libraries` (sorted by max `risk_score`) for CI/CD gating; payload: `{"url": "<git repo url>"}`.
 
 All responses are JSON and include Mongo `_id` as `id` strings for easy consumption by the React UI and MCP server.

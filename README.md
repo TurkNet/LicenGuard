@@ -48,6 +48,14 @@ API_URL=http://localhost:4000 npm run dev
 
 Register the MCP binary with your preferred tool (e.g. Claude, VS Code) to browse license data without leaving chat.
 
+## API highlights
+
+- `GET /libraries` – list libraries with versions.
+- `POST /libraries` – create a library entry; `POST /libraries/{libraryId}/versions` to append a version.
+- `GET /libraries/search?q=` – search locally and fall back to MCP discovery.
+- `POST /libraries/repositories/scan` – clone a repo, detect dependency files, and run MCP file analysis.
+- `POST /libraries/repositories/scan/highest-risk` – same repo scan flow but returns the libraries with the highest `risk_score` for CI/CD gating (payload: `{"url": "<git repo url>"}`).
+
 ## MongoDB data shape
 
 ```json
