@@ -6,7 +6,14 @@ from uvicorn.config import LOGGING_CONFIG
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .views.library_view import router as library_router
+from dotenv import load_dotenv
+import os
+from pathlib import Path
 
+
+# .env'yi api klasöründen yükle
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 def create_app() -> FastAPI:
     log_config = copy.deepcopy(LOGGING_CONFIG)
