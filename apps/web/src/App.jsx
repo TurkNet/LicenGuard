@@ -4,6 +4,7 @@ import ImportModal from './components/ImportModal.jsx';
 import UploadModal from './components/UploadModal.jsx';
 import RepoModal from './components/RepoModal.jsx';
 import LibrarySummary from './components/LibrarySummary.jsx';
+import RepoScans from './components/RepoScans.jsx';
 import heroLogo from './assets/logo.png';
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isRepoModalOpen, setIsRepoModalOpen] = useState(false);
+  const [activePage, setActivePage] = useState('home'); // home | repo-scans
   const menuRef = useRef(null);
 
   const loadLibraries = async () => {
@@ -60,88 +62,114 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="hero">
-        <a href="/" className="hero-logo-link">
-          <img src={heroLogo} alt="LicenGuard" className="hero-logo" />
-        </a>
-        <div>
-          <h1>LicenGuard</h1>
-          <p>License Intelligence Platform</p>
+        <div className="hero__brand">
+          <a href="/" className="hero-logo-link">
+            <img src={heroLogo} alt="LicenGuard" className="hero-logo" />
+          </a>
+          <div>
+            <h1>LicenGuard</h1>
+            <p>License Intelligence Platform</p>
+          </div>
         </div>
+        <nav className="hero-nav">
+          <button
+            type="button"
+            className={`hero-nav__item ${activePage === 'home' ? 'is-active' : ''}`}
+            onClick={() => setActivePage('home')}
+          >
+            Ana Sayfa
+          </button>
+          <button
+            type="button"
+            className={`hero-nav__item ${activePage === 'repo-scans' ? 'is-active' : ''}`}
+            onClick={() => setActivePage('repo-scans')}
+          >
+            Repo Taramaları
+          </button>
+        </nav>
       </header>
 
-      <section className="search-row">
-        <div className="search-bar">
-          <input
-            type="search"
-            placeholder="Search libraries or versions..."
-            value={query}
-            onChange={event => setQuery(event.target.value)}
-          />
-        </div>
-        <div className="inline-add-wrapper" ref={menuRef}>
-          <button
-            className="inline-add"
-            onClick={() => setIsMenuOpen(prev => !prev)}
-            aria-label="Add library"
-            type="button"
-          >
-            +
-          </button>
-          {isMenuOpen && (
-            <div className="inline-menu">
-              <button
-                type="button"
-                className="inline-menu__item"
-                onClick={() => {
-                  setIsImportModalOpen(true);
-                  closeMenus();
-                }}
-              >
-                Elle Ekle
-              </button>
-              <button
-                type="button"
-                className="inline-menu__item"
-                onClick={() => {
-                  setIsUploadModalOpen(true);
-                  closeMenus();
-                }}
-              >
-                Dosya Yükle
-              </button>
-              <button
-                type="button"
-                className="inline-menu__item"
-                onClick={() => {
-                  setIsRepoModalOpen(true);
-                  closeMenus();
-                }}
-              >
-                Repo Linki
-              </button>
+      {activePage === 'home' && (
+        <>
+          <section className="search-row">
+            <div className="search-bar">
+              <input
+                type="search"
+                placeholder="Search libraries or versions..."
+                value={query}
+                onChange={event => setQuery(event.target.value)}
+              />
             </div>
-          )}
-        </div>
-      </section>
-      <LibrarySummary libraries={filteredLibraries} />
+            <div className="inline-add-wrapper" ref={menuRef}>
+              <button
+                className="inline-add"
+                onClick={() => setIsMenuOpen(prev => !prev)}
+                aria-label="Add library"
+                type="button"
+              >
+                +
+              </button>
+              {isMenuOpen && (
+                <div className="inline-menu">
+                  <button
+                    type="button"
+                    className="inline-menu__item"
+                    onClick={() => {
+                      setIsImportModalOpen(true);
+                      closeMenus();
+                    }}
+                  >
+                    Elle Ekle
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-menu__item"
+                    onClick={() => {
+                      setIsUploadModalOpen(true);
+                      closeMenus();
+                    }}
+                  >
+                    Dosya Yükle
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-menu__item"
+                    onClick={() => {
+                      setIsRepoModalOpen(true);
+                      closeMenus();
+                    }}
+                  >
+                    Repo Linki
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
+          <LibrarySummary libraries={filteredLibraries} />
 
-      <ImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} onImported={loadLibraries} />
-      <UploadModal
-        isOpen={isUploadModalOpen}
-        onClose={() => {
-          setIsUploadModalOpen(false);
-          loadLibraries();
-        }}
-        onImported={loadLibraries}
-      />
-      <RepoModal
-        isOpen={isRepoModalOpen}
-        onClose={() => setIsRepoModalOpen(false)}
-        onImported={loadLibraries}
-      />
+          <ImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} onImported={loadLibraries} />
+          <UploadModal
+            isOpen={isUploadModalOpen}
+            onClose={() => {
+              setIsUploadModalOpen(false);
+              loadLibraries();
+            }}
+            onImported={loadLibraries}
+          />
+          <RepoModal
+            isOpen={isRepoModalOpen}
+            onClose={() => setIsRepoModalOpen(false)}
+            onImported={loadLibraries}
+          />
 
-      {loading && <p>Loading libraries...</p>}
-      {error && <p className="error">{error}</p>}
+          {loading && <p>Loading libraries...</p>}
+          {error && <p className="error">{error}</p>}
+        </>
+      )}
+
+      {activePage === 'repo-scans' && (
+        <RepoScans />
+      )}
 
     </div>
   );

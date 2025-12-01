@@ -68,3 +68,12 @@ export async function analyzeFileUpload(file) {
   }
   return res.json();
 }
+
+export function fetchRepositoryScans({ limit = 100, query } = {}) {
+  const params = new URLSearchParams();
+  if (limit) params.append('limit', String(limit));
+  if (query) params.append('q', query);
+  const searchPath = query ? '/repository-scans/search' : '/repository-scans';
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  return request(`${searchPath}${suffix}`);
+}
