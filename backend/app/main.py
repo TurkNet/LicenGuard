@@ -6,6 +6,7 @@ from uvicorn.config import LOGGING_CONFIG
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .views.library_view import router as library_router
+from .views.repository_scan_view import router as repository_scan_router
 from dotenv import load_dotenv
 import os
 from pathlib import Path
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
         return {'status': 'ok'}
 
     app.include_router(library_router)
+    app.include_router(repository_scan_router)
     return app
 
 

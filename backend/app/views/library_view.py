@@ -11,6 +11,7 @@ from ..controllers.library_controller import (
     search_libraries_local,
     update_library
 )
+from ..controllers.repository_scan_controller import create_repository_scan
 from ..models.library import (
     LibraryCreate,
     LibraryDocument,
@@ -18,8 +19,10 @@ from ..models.library import (
     LibraryUpdate,
     VersionModel
 )
+from ..models.repository_scan import RepositoryScanCreate
 from ..services.mcp_client import get_mcp_http_client, MCPClientError
 from ..services.repo_scanner import clone_and_scan
+from urllib.parse import urlparse
 
 
 router = APIRouter(prefix='/libraries', tags=['libraries'])
@@ -73,6 +76,14 @@ def compute_risk_from_license(license_name=None, license_summary=None, confidenc
         reason = 'permissive license indicators (e.g., MIT/Apache/BSD)'
     explanation = f"{level} risk — score {score}/100 {reason}"
     return {'level': level, 'score': score, 'explanation': explanation}
+
+
+def _infer_repo_meta(repo_url: str) -> tuple[str, str]:
+    parsed = urlparse(repo_url)
+    platform = (parsed.hostname or '').split('.')[-2] if parsed.hostname else 'unknown'
+    path_parts = (parsed.path or '').strip('/').split('/')
+    repo_name = '/'.join(path_parts[:2]) if len(path_parts) >= 2 else (path_parts[0] if path_parts else 'unknown')
+    return platform or 'unknown', repo_name or 'unknown'
 
 
 def pick_version_match(versions, target):
@@ -340,6 +351,33 @@ async def handle_repo_scan(payload: dict):
         raise HTTPException(status_code=503, detail='MCP HTTP client not configured')
 
     scan_data = await perform_repo_scan(repo_url, client)
+    # Persist summarized scan to repository_scans collection
+    platform, repo_name = _infer_repo_meta(repo_url)
+    try:
+        payload = RepositoryScanCreate(
+            repository_url=repo_url,
+            repository_platform=platform,
+            repository_name=repo_name,
+            dependencies=[
+                {
+                    "library_path": file.get("path"),
+                    "libraries": [
+                        {
+                            "library_name": dep.get("name"),
+                            "library_version": normalize_version(dep.get("version")) or dep.get("version") or "unknown"
+                        }
+                        for dep in (file.get("report", {}).get("dependencies") or [])
+                        if dep.get("name")
+                    ],
+                }
+                for file in scan_data.get("analyzed_files", [])
+            ],
+        )
+        await create_repository_scan(payload)
+    except Exception as exc:
+        # Do not block response; just log.
+        print(f'{datetime.utcnow().isoformat()} [repo_scan] failed to persist scan: {exc}')
+
     return {"url": repo_url, "files": scan_data["analyzed_files"], "dependencies": scan_data["dependencies"]}
 
 
@@ -361,6 +399,32 @@ async def handle_repo_scan_highest_risk(payload: dict):
     scan_data = await perform_repo_scan(repo_url, client)
     dependencies = scan_data["dependencies"]
     analyzed_files = scan_data["analyzed_files"]
+
+    # Persist summarized scan to repository_scans collection
+    platform, repo_name = _infer_repo_meta(repo_url)
+    try:
+        payload = RepositoryScanCreate(
+            repository_url=repo_url,
+            repository_platform=platform,
+            repository_name=repo_name,
+            dependencies=[
+                {
+                    "library_path": file.get("path"),
+                    "libraries": [
+                        {
+                            "library_name": dep.get("name"),
+                            "library_version": normalize_version(dep.get("version")) or dep.get("version") or "unknown"
+                        }
+                        for dep in (file.get("report", {}).get("dependencies") or [])
+                        if dep.get("name")
+                    ],
+                }
+                for file in analyzed_files
+            ],
+        )
+        await create_repository_scan(payload)
+    except Exception as exc:
+        print(f'{datetime.utcnow().isoformat()} [repo_scan_highest] failed to persist scan: {exc}')
 
     deps_with_scores = [d for d in dependencies if d.get('risk_score') is not None]
     if deps_with_scores:

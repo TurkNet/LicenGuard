@@ -17,15 +17,19 @@ body {
   color: #0f172a;
 }
 
-header {
-  color: #e2e8f0;
-}
-
 .hero {
   display: flex;
   align-items: center;
   gap: 1.5rem;
   margin-bottom: 1.5rem;
+  color: #e2e8f0;
+  justify-content: space-between;
+}
+
+.hero__brand {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
 }
 
 .hero-logo {
@@ -36,6 +40,27 @@ header {
 
 .hero-logo-link {
   display: inline-flex;
+}
+
+.hero-nav {
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+.hero-nav__item {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e2e8f0;
+  padding: 0.55rem 0.9rem;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hero-nav__item.is-active {
+  background: linear-gradient(135deg, #6d28d9, #a21caf);
+  border-color: transparent;
+  box-shadow: 0 15px 35px rgba(82, 0, 148, 0.35);
 }
 
 .panel {
@@ -197,6 +222,215 @@ header {
 .inline-menu__item:hover {
   background: rgba(255, 255, 255, 0.08);
   border-radius: 0;
+}
+
+.repo-scans {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.repo-scans__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.75rem;
+}
+
+.repo-scans__header h2 {
+  margin: 0.15rem 0;
+}
+
+.eyebrow {
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.muted {
+  color: #94a3b8;
+  margin: 0.1rem 0 0;
+}
+
+.primary-btn {
+  padding: 0.7rem 1rem;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(135deg, #6d28d9, #a21caf);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 15px 35px rgba(82, 0, 148, 0.35);
+}
+
+.repo-scans__table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.repo-scans__search {
+  margin-bottom: 0.5rem;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.repo-scans__search input {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  padding: 0.65rem 0.9rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: ##1b1e22;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.25);
+}
+
+.repo-scans__search button {
+  border: none;
+  border-radius: 10px;
+  padding: 0.65rem 1rem;
+  background: linear-gradient(135deg, #6d28d9, #a21caf);
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 12px 24px rgba(82, 0, 148, 0.35);
+}
+
+.repo-scans__search button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.repo-scans__row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  align-items: center;
+}
+
+.repo-scans__row--head {
+  background: #f8fafc;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.repo-scans__row--empty {
+  background: linear-gradient(135deg, rgba(109, 40, 217, 0.08), rgba(162, 28, 175, 0.06));
+  border: 1px dashed rgba(109, 40, 217, 0.3);
+}
+
+.repo-scans__empty {
+  grid-column: 1 / -1;
+}
+
+.repo-scans__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.repo-scans__group {
+  border: 1px solid rgba(226, 232, 240, 0.6);
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
+.repo-scans__repo-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.repo-scans__repo-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.repo-scans__repo-title a {
+  color: #1d4ed8;
+  text-decoration: none;
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+
+.repo-scans__repo-title a:hover {
+  text-decoration: underline;
+}
+
+.repo-scans__repo-title {
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+
+.repo-scans__platform {
+  background: #e0f2fe;
+  color: #0369a1;
+  padding: 0.15rem 0.5rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.repo-scans__date {
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.repo-scans__date--right {
+  margin-left: auto;
+}
+
+.repo-scans__deps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.repo-scans__dep {
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.repo-scans__path {
+  font-family: 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  color: #0f172a;
+  font-weight: 700;
+  word-break: break-all;
+}
+
+.repo-scans__libs {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.repo-scans__libs li {
+  list-style: disc;
+  color: #1f2937;
+}
+
+.repo-scans__lib-name {
+  font-weight: 700;
+}
+
+.repo-scans__lib-version {
+  margin-left: 0.35rem;
+  color: #475569;
 }
 
 .summary-list {

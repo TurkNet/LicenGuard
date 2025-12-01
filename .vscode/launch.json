@@ -50,6 +50,8 @@
         "4000"
       ],
       "envFile": "${workspaceFolder}/backend/.env",
+      "preLaunchTask": "docker:mongo:start",
+      "postDebugTask": "docker:mongo:stop",
       "console": "internalConsole",
       "justMyCode": true
     }
