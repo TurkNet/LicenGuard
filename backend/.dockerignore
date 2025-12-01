@@ -10,7 +10,7 @@ dist
 build
 .venv
 venv
-env
+.env
 .env.local
 *.log
 .git

@@ -11,4 +11,5 @@ yarn-error.log*
 README.md
 coverage
 .nyc_output
+.env
 
