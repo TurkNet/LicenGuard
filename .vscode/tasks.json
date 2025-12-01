@@ -56,6 +56,18 @@
       }
     },
     {
+      "label": "docker:mongo:start",
+      "type": "shell",
+      "command": "docker compose -f ${workspaceFolder}/docker-compose.yml up -d mongo",
+      "problemMatcher": []
+    },
+    {
+      "label": "docker:mongo:stop",
+      "type": "shell",
+      "command": "docker compose -f ${workspaceFolder}/docker-compose.yml stop mongo",
+      "problemMatcher": []
+    },
+    {
       "label": "mcp:install",
       "type": "shell",
       "command": "npm install",
