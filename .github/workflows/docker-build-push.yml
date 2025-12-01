@@ -54,11 +54,11 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels) for ${{ matrix.service.name }}
+      - name: Extract metadata (tags, labels) for ${{ matrix.name }}
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ matrix.service.image }}
+          images: ${{ matrix.image }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -68,16 +68,16 @@ jobs:
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push Docker image for ${{ matrix.service.name }}
+      - name: Build and push Docker image for ${{ matrix.name }}
         uses: docker/build-push-action@v5
         with:
-          context: ${{ matrix.service.context }}
-          file: ${{ matrix.service.dockerfile }}
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            ${{ matrix.service.has_build_args && format('API_URL={0}', matrix.service.api_url) || '' }}
+            ${{ matrix.has_build_args && format('API_URL={0}', matrix.api_url) || '' }}
 
