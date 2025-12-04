@@ -235,82 +235,6 @@ async def resolve_dependency_entry(dep: Dict[str, Any], relpath: str, report: Di
     }
     return enriched
 
-# TODO: buna gerek kalmadı galiba
-# async def perform_repo_scan(repo_url: str | None, client, root: str | None = None) -> Dict[str, Any]:
-#     """
-#     Clone and scan a repository, enrich dependencies using Mongo/MCP, and persist MCP hits.
-#     Returns analyzed files and a deduplicated dependency list.
-#     """
-#     # If a root path is provided, use it (do not re-clone). Otherwise clone.
-#     tmpdir = None
-#     created_tmp = False
-
-#     if root:
-#         tmpdir = root
-#     else:
-#         if not repo_url:
-#             raise HTTPException(status_code=400, detail='url is required when no root is provided')
-#         try:
-#             tmpdir = clone_repository(repo_url)
-#             created_tmp = True
-#         except Exception as error:
-#             raise HTTPException(status_code=502, detail=f'Repo clone failed: {error}')
-
-#     try:
-#         scan_result = scan_repository(tmpdir)
-#     except Exception as error:
-#         raise HTTPException(status_code=502, detail=f'Repo scan failed: {error}')
-
-#     analyzed_files: List[Dict[str, Any]] = []
-#     resolved_index: Dict[tuple, Dict[str, Any]] = {}
-#     tmpdir = scan_result.get('root')
-#     try:
-#         for relpath in scan_result.get('files', []):
-#             full_path = os.path.join(scan_result['root'], relpath)
-#             try:
-#                 with open(full_path, 'r', encoding='utf-8', errors='ignore') as fh:
-#                     content = fh.read()
-#                 report = await client.analyze_file({"filename": relpath, "content": content}) or {}
-#             except Exception as exc:
-#                 report = {"error": str(exc), "dependencies": []}
-
-#             enriched_deps = []
-#             for dep in report.get('dependencies', []) or []:
-#                 enriched = await resolve_dependency_entry(dep, relpath, report)
-#                 key = (enriched['name'].lower(), normalize_version(enriched.get('version')).lower())
-#                 existing = resolved_index.get(key)
-#                 if existing:
-#                     sources = set(existing.get('sources', [])) | set(enriched.get('sources', []))
-#                     existing['sources'] = sorted(sources)
-#                     if existing.get('risk_score') is None and enriched.get('risk_score') is not None:
-#                         existing['risk_score'] = enriched.get('risk_score')
-#                         existing['risk_level'] = enriched.get('risk_level')
-#                     if not existing.get('risk_score_explanation') and enriched.get('risk_score_explanation'):
-#                         existing['risk_score_explanation'] = enriched.get('risk_score_explanation')
-#                     for key in ("license_risk_score", "security_risk_score", "maintenance_risk_score", "usage_context_risk_score"):
-#                         if existing.get(key) is None and enriched.get(key) is not None:
-#                             existing[key] = enriched.get(key)
-#                     if not existing.get('library_id') and enriched.get('library_id'):
-#                         existing['library_id'] = enriched.get('library_id')
-#                     if not existing.get('repository_url') and enriched.get('repository_url'):
-#                         existing['repository_url'] = enriched.get('repository_url')
-#                 else:
-#                     resolved_index[key] = enriched
-#                 enriched_deps.append({**enriched})
-
-#             report['dependencies'] = enriched_deps
-#             analyzed_files.append({"path": relpath, "report": report})
-#     finally:
-#         if created_tmp and tmpdir:
-#             shutil.rmtree(tmpdir, ignore_errors=True)
-
-#     dependencies = []
-#     for dep in resolved_index.values():
-#         dep.pop('_key', None)
-#         dependencies.append(dep)
-
-#     return {"analyzed_files": analyzed_files, "dependencies": dependencies}
-
 
 @router.get('/', response_model=List[LibraryDocument])
 async def handle_list_libraries(limit: int = Query(50, ge=1, le=500, description='Max items to return')):
@@ -359,46 +283,6 @@ async def handle_analyze_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=502, detail=str(error))
     return {"file": file.filename, **(report or {})}
 
-
-@router.post('/repositories/scan')
-async def handle_repo_scan(payload: dict):
-    repo_url = payload.get('url')
-    root = payload.get('root')
-    if not repo_url and not root:
-        raise HTTPException(status_code=400, detail='url or root is required')
-    client = get_mcp_http_client()
-    if not client:
-        raise HTTPException(status_code=503, detail='MCP HTTP client not configured')
-
-    scan_data = await perform_repo_scan(repo_url, client, root=root)
-    # Persist summarized scan to repository_scans collection
-    platform, repo_name = _infer_repo_meta(repo_url)
-    try:
-        payload = RepositoryScanCreate(
-            repository_url=repo_url,
-            repository_platform=platform,
-            repository_name=repo_name,
-            dependencies=[
-                {
-                    "library_path": file.get("path"),
-                    "libraries": [
-                        {
-                            "library_name": dep.get("name"),
-                            "library_version": normalize_version(dep.get("version")) or dep.get("version") or "unknown"
-                        }
-                        for dep in (file.get("report", {}).get("dependencies") or [])
-                        if dep.get("name")
-                    ],
-                }
-                for file in scan_data.get("analyzed_files", [])
-            ],
-        )
-        await create_repository_scan(payload)
-    except Exception as exc:
-        # Do not block response; just log.
-        print(f'{datetime.utcnow().isoformat()} [repo_scan] failed to persist scan: {exc}')
-
-    return {"url": repo_url, "files": scan_data["analyzed_files"], "dependencies": scan_data["dependencies"]}
 
 
 @router.post('/repositories/clone')
@@ -467,9 +351,50 @@ async def handle_repo_scan_highest_risk(payload: dict):
     if not client:
         raise HTTPException(status_code=503, detail='MCP HTTP client not configured')
 
-    scan_data = await perform_repo_scan(repo_url, client)
-    dependencies = scan_data["dependencies"]
-    analyzed_files = scan_data["analyzed_files"]
+    # Use existing route handlers to support both UI and CI flows:
+    #  - clone the repository (handle_repo_clone)
+    #  - list packages for the cloned repo (handle_repo_list_packages)
+    # Then enrich each dependency using `resolve_dependency_entry`.
+    try:
+        clone_res = await handle_repo_clone({"url": repo_url})
+        # clone_res should contain `root` and `files`
+        root = clone_res.get("root")
+        scanned_files = clone_res.get("files") or []
+
+        # If clone returned no files, try listing packages explicitly
+        if not scanned_files and root:
+            list_res = await handle_repo_list_packages({"root": root})
+            scanned_files = list_res.get("files") or []
+
+        dependencies = []
+        analyzed_files = []
+
+        for f in scanned_files:
+            relpath = f.get("path")
+            report = f.get("report") or {}
+            # collect analyzed file summary
+            analyzed_files.append({"path": relpath, "report": report})
+
+            deps = Array = report.get("dependencies") if isinstance(report.get("dependencies"), list) else []
+            for dep in deps:
+                try:
+                    enriched = await resolve_dependency_entry(dep, relpath, report)
+                except Exception:
+                    # fallback: still include minimal dep info
+                    enriched = {
+                        "name": dep.get("name"),
+                        "version": dep.get("version"),
+                        "ecosystem": dep.get("ecosystem") or report.get("ecosystem"),
+                        "sources": [relpath]
+                    }
+                # attach source file info
+                enriched["file"] = relpath
+                dependencies.append(enriched)
+    except HTTPException:
+        # propagate HTTP errors as-is
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
     # Persist summarized scan to repository_scans collection
     platform, repo_name = _infer_repo_meta(repo_url)

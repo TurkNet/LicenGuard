@@ -69,22 +69,6 @@ export async function listRepositoryPackages({ root, url } = {}) {
   return res.json();
 }
 
-// Backwards-compatible scanRepository: accepts string url or object { url } | { root }
-export async function scanRepository(input) {
-  let body;
-  if (typeof input === 'string') body = JSON.stringify({ url: input });
-  else body = JSON.stringify(input || {});
-  const res = await fetch(`${API_BASE}/libraries/repositories/scan`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body,
-  });
-  if (!res.ok) {
-    const message = await res.text();
-    throw new Error(message || `Request failed with status ${res.status}`);
-  }
-  return res.json();
-}
 
 export async function analyzeFileUpload(file) {
   const form = new FormData();
