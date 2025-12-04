@@ -17,7 +17,9 @@ DEP_FILES = {
     # Java / Kotlin
     "pom.xml", "build.gradle", "build.gradle.kts",
     # .NET
-    "csproj",
+    "packages.config",
+    # TODO: Disable until .csproj support is added
+    # "csproj",
     # Go
     "go.mod", "vendor/modules.txt",
 }
@@ -25,8 +27,9 @@ DEP_FILES = {
 
 def is_dependency_file(filename: str) -> bool:
     lower = filename.lower()
-    if lower.endswith(".csproj"):
-        return True
+    # TODO: Disable until .csproj support is added
+    # if lower.endswith(".csproj"):
+    #     return True
     return lower in DEP_FILES
 
 
@@ -91,97 +94,143 @@ def _with_host_auth(repo_url: str) -> tuple[str, str | None]:
     return repo_url, None
 
 
-def clone_and_scan(repo_url: str) -> Dict[str, Any]:
-    tmpdir = tempfile.mkdtemp(prefix="repo-scan-")
+# NOTE: `clone_and_scan` removed — use `clone_repository` + `scan_repository` instead.
+
+
+def clone_repository(repo_url: str, target_dir: str | None = None) -> str:
+    """
+    Clone the repository and return the path to the cloned repo (root directory).
+    If `target_dir` is not provided a temp dir will be created.
+    """
+    tmpdir = target_dir or tempfile.mkdtemp(prefix="repo-scan-")
+    created_tmp = target_dir is None
+
+    # Prepare minimal env for non-interactive containers
+    env = os.environ.copy()
+    env["HOME"] = tmpdir
+    env["GIT_TERMINAL_PROMPT"] = "0"
+
+    clone_url, secret_used = _with_host_auth(repo_url)
+    result = subprocess.run(
+        ["git", "clone", "--depth", "1", clone_url, tmpdir],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        env=env,
+    )
+    if result.returncode == 0:
+        return tmpdir
+
+    stderr = (result.stderr or b"").decode(errors="ignore").strip()
+    if secret_used:
+        stderr = stderr.replace(secret_used, "***redacted***")
+
+    logger.warning(f"HTTPS clone failed for {repo_url}: {stderr}")
+
+    hint = "Check that the repository URL is correct and reachable."
+    lower_url = repo_url.lower()
+    is_github = "github.com" in lower_url
+    is_bitbucket = "bitbucket.org" in lower_url
+
+    if not secret_used:
+        if is_github:
+            hint += " For private repos, set GITHUB_TOKEN."
+        elif is_bitbucket:
+            hint += " For private repos, set BITBUCKET_USER and BITBUCKET_APP_PASSWORD."
+        else:
+            hint += " For private repos, ensure authentication credentials are provided via environment variables."
+
+    if "terminal prompts disabled" in stderr:
+        hint += " Terminal prompts are disabled. You must provide credentials (env vars) or use SSH with keys."
+
+    # Try SSH fallback if appropriate
+    try_ssh_fallback = False
+    has_ssh = shutil.which("ssh") is not None
+    if not has_ssh:
+        hint += " SSH client not found, SSH fallback disabled."
+
     try:
-
-        # Prepare environment for OpenShift/K8s compatibility
-        # 1. Set HOME to temp dir as random UIDs might not have a writable home
-        # 2. Disable terminal prompts
-        env = os.environ.copy()
-        env["HOME"] = tmpdir
-        env["GIT_TERMINAL_PROMPT"] = "0"
-
-        clone_url, secret_used = _with_host_auth(repo_url)
-        result = subprocess.run(
-            ["git", "clone", "--depth", "1", clone_url, tmpdir],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            env=env,
-        )
-        if result.returncode != 0:
-            stderr = (result.stderr or b"").decode(errors="ignore").strip()
-            if secret_used:
-                stderr = stderr.replace(secret_used, "***redacted***")
-
-            logger.warning(f"HTTPS clone failed for {repo_url}: {stderr}")
-
-            hint = "Check that the repository URL is correct and reachable."
-            lower_url = repo_url.lower()
-            is_github = "github.com" in lower_url
-            is_bitbucket = "bitbucket.org" in lower_url
-
-            if not secret_used:
-                if is_github:
-                    hint += " For private repos, set GITHUB_TOKEN."
-                elif is_bitbucket:
-                    hint += " For private repos, set BITBUCKET_USER and BITBUCKET_APP_PASSWORD."
-                else:
-                    hint += " For private repos, ensure authentication credentials are provided via environment variables."
-
-            if "terminal prompts disabled" in stderr:
-                hint += " Terminal prompts are disabled. You must provide credentials (env vars) or use SSH with keys."
-
-            # If HTTPS clone failed and we did not inject HTTP auth, try SSH fallback
-            try_ssh_fallback = False
-            has_ssh = shutil.which("ssh") is not None
-
-            if not has_ssh:
-                hint += " SSH client not found, SSH fallback disabled."
-
-            try:
-                parsed = urlparse(repo_url)
-                host = (parsed.hostname or "").lower()
-                if (parsed.scheme in ("http", "https")) and (not secret_used) and host in ("github.com", "www.github.com", "bitbucket.org", "www.bitbucket.org") and has_ssh:
-                    try_ssh_fallback = True
-            except Exception:
-                try_ssh_fallback = False
-
-            if try_ssh_fallback:
-                # Construct SSH clone URL: git@host:owner/repo.git
-                path = parsed.path.lstrip('/')
-                ssh_url = f"git@{host}:{path}"
-                logger.info(f"Attempting SSH fallback for {repo_url} -> {ssh_url}")
-
-                # Disable strict host key checking for this operation to avoid "Host key verification failed"
-                # in non-interactive environments (containers).
-                ssh_env = env.copy()
-                ssh_env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=no"
-
-                try:
-                    ssh_result = subprocess.run(
-                        ["git", "clone", "--depth", "1", ssh_url, tmpdir],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.PIPE,
-                        env=ssh_env,
-                    )
-                    if ssh_result.returncode == 0:
-                        # Success with SSH fallback
-                        return {"files": find_dependency_files(tmpdir), "root": tmpdir}
-                    ssh_stderr = (ssh_result.stderr or b"").decode(errors="ignore").strip()
-                    logger.warning(f"SSH fallback failed: {ssh_stderr}")
-                except Exception as e:
-                    ssh_stderr = str(e)
-                    logger.error(f"SSH fallback exception: {e}")
-
-                # Redact nothing for SSH attempt
-                full_err = f"HTTPS clone stderr: {stderr or 'unknown'}, SSH clone stderr: {ssh_stderr or 'unknown'}. {hint}"
-                raise RuntimeError(f"git clone failed: {full_err}")
-
-            raise RuntimeError(f"git clone failed: {stderr or 'unknown error'}. {hint}")
-
-        files = find_dependency_files(tmpdir)
-        return {"files": files, "root": tmpdir}
+        parsed = urlparse(repo_url)
+        host = (parsed.hostname or "").lower()
+        if (parsed.scheme in ("http", "https")) and (not secret_used) and host in ("github.com", "www.github.com", "bitbucket.org", "www.bitbucket.org") and has_ssh:
+            try_ssh_fallback = True
     except Exception:
+        try_ssh_fallback = False
+
+    if try_ssh_fallback:
+        path = parsed.path.lstrip('/')
+        ssh_url = f"git@{host}:{path}"
+        logger.info(f"Attempting SSH fallback for {repo_url} -> {ssh_url}")
+
+        ssh_env = env.copy()
+        ssh_env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=no"
+
+        try:
+            ssh_result = subprocess.run(
+                ["git", "clone", "--depth", "1", ssh_url, tmpdir],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                env=ssh_env,
+            )
+            if ssh_result.returncode == 0:
+                return tmpdir
+            ssh_stderr = (ssh_result.stderr or b"").decode(errors="ignore").strip()
+            logger.warning(f"SSH fallback failed: {ssh_stderr}")
+        except Exception as e:
+            ssh_stderr = str(e)
+            logger.error(f"SSH fallback exception: {e}")
+
+        full_err = f"HTTPS clone stderr: {stderr or 'unknown'}, SSH clone stderr: {ssh_stderr or 'unknown'}. {hint}"
+        # cleanup if we created tmpdir here
+        if created_tmp:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        raise RuntimeError(f"git clone failed: {full_err}")
+
+    # No SSH fallback possible
+    if created_tmp:
         shutil.rmtree(tmpdir, ignore_errors=True)
-        raise
+    raise RuntimeError(f"git clone failed: {stderr or 'unknown error'}. {hint}")
+
+
+def scan_repository(root: str) -> Dict[str, Any]:
+    """
+    Scan a cloned repository directory for dependency files and return
+    the same shape as the original `clone_and_scan` (files + root).
+    """
+    if not root or not os.path.isdir(root):
+        raise RuntimeError("scan_repository: invalid root path")
+    files = find_dependency_files(root)
+    return {"files": files, "root": root}
+
+
+def list_repository_packages(root: str) -> List[Dict[str, Any]]:
+    """
+    Return a list of dependency-file summaries found in a cloned repository.
+    Each item is {"path": relative_path, "report": <local analyze_file report>}.
+
+    This uses the local file analyzer (no MCP HTTP calls) so it's safe to call
+    in non-networked contexts and suitable for UI previews.
+    """
+    if not root or not os.path.isdir(root):
+        raise RuntimeError("list_repository_packages: invalid root path")
+
+    summaries: List[Dict[str, Any]] = []
+    try:
+        # Import locally to avoid circular imports at module import time
+        from .file_analyzer import analyze_file as local_analyze_file
+    except Exception:
+        local_analyze_file = None
+
+    for rel in find_dependency_files(root):
+        full = os.path.join(root, rel)
+        try:
+            with open(full, 'r', encoding='utf-8', errors='ignore') as fh:
+                content = fh.read()
+            if local_analyze_file:
+                report = local_analyze_file(rel, content)
+            else:
+                report = {"packageManager": "unknown", "dependencies": []}
+        except Exception as e:
+            report = {"error": str(e), "packageManager": "unknown", "dependencies": []}
+        summaries.append({"path": rel, "report": report})
+
+    return summaries

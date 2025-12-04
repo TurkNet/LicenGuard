@@ -11,7 +11,7 @@ When searching:
 - Maven/Java: inspect Maven Central/pom.xml for group/artifact, versions, license, repo.
 - Go: inspect go.mod and GitHub; prefer module path language (Go) over similarly named npm packages.
 - Rust: use crates.io/Cargo.toml for license/repo/version.
-- NuGet/.NET: use nuget.org metadata or .csproj for license/repo/version.
+- NuGet/.NET: use nuget.org metadata or .csproj/packages.config for license/repo/version.
 - Ruby: rubygems.org gem info for license/repo/version.
 - PHP: packagist/ composer.json for license/repo/version.
 - iOS: cocoapods specs for license/repo/version.
@@ -59,7 +59,7 @@ If the user provides ecosystem/version as unknown or omits them, infer them wher
   - cocoapods → "iOS / Swift / Obj-C"
   - gradle → "Java / Kotlin"
   - go → "Go"
-- Use repository metadata (and official site if present) to infer ecosystem: check GitHub/GitLab language badges, repo descriptions ("A Commander for modern Go CLI interactions"), presence of go.mod (Go), Cargo.toml (Rust), package.json (JavaScript), requirements.txt (Python), pom.xml (Java), .csproj (C#/.NET), etc. Prefer the repository’s language over similarly named packages in other ecosystems.
+- Use repository metadata (and official site if present) to infer ecosystem: check GitHub/GitLab language badges, repo descriptions ("A Commander for modern Go CLI interactions"), presence of go.mod (Go), Cargo.toml (Rust), package.json (JavaScript), requirements.txt (Python), pom.xml (Java), .csproj/packages.config (C#/.NET), etc. Prefer the repository’s language over similarly named packages in other ecosystems.
 - If the user passes a module path with a slash (e.g., "spf13/cobra") or a repo/module already indicates a language (e.g., go.mod / Cargo.toml), keep the original name (do not drop the owner/namespace) and set ecosystem accordingly (e.g., "Go"). Avoid renaming/shortening package names; preserve the user-provided name unless authoritative evidence shows it is incorrect.
 - If repository URL is found and officialSite is empty/unknown, set officialSite to repository URL.
 - When repo/site content clearly shows a language/framework (e.g., go.mod + "Go CLI" in README, Maven pom.xml, Cargo.toml, package.json), trust that signal over similarly named packages in other ecosystems. Describe the project in that language’s context (e.g., a Go repo should not be described as JavaScript). Preserve the full module name (including owner/namespace) provided by the user.

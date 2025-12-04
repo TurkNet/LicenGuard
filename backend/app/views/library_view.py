@@ -21,7 +21,11 @@ from ..models.library import (
 )
 from ..models.repository_scan import RepositoryScanCreate
 from ..services.mcp_client import get_mcp_http_client, MCPClientError
-from ..services.repo_scanner import clone_and_scan
+from ..services.repo_scanner import (
+    clone_repository,
+    scan_repository,
+    list_repository_packages,
+)
 from urllib.parse import urlparse
 
 
@@ -231,66 +235,81 @@ async def resolve_dependency_entry(dep: Dict[str, Any], relpath: str, report: Di
     }
     return enriched
 
+# TODO: buna gerek kalmadı galiba
+# async def perform_repo_scan(repo_url: str | None, client, root: str | None = None) -> Dict[str, Any]:
+#     """
+#     Clone and scan a repository, enrich dependencies using Mongo/MCP, and persist MCP hits.
+#     Returns analyzed files and a deduplicated dependency list.
+#     """
+#     # If a root path is provided, use it (do not re-clone). Otherwise clone.
+#     tmpdir = None
+#     created_tmp = False
 
-async def perform_repo_scan(repo_url: str, client) -> Dict[str, Any]:
-    """
-    Clone and scan a repository, enrich dependencies using Mongo/MCP, and persist MCP hits.
-    Returns analyzed files and a deduplicated dependency list.
-    """
-    try:
-        scan_result = clone_and_scan(repo_url)
-    except Exception as error:
-        raise HTTPException(status_code=502, detail=f'Repo scan failed: {error}')
+#     if root:
+#         tmpdir = root
+#     else:
+#         if not repo_url:
+#             raise HTTPException(status_code=400, detail='url is required when no root is provided')
+#         try:
+#             tmpdir = clone_repository(repo_url)
+#             created_tmp = True
+#         except Exception as error:
+#             raise HTTPException(status_code=502, detail=f'Repo clone failed: {error}')
 
-    analyzed_files: List[Dict[str, Any]] = []
-    resolved_index: Dict[tuple, Dict[str, Any]] = {}
-    tmpdir = scan_result.get('root')
-    try:
-        for relpath in scan_result.get('files', []):
-            full_path = os.path.join(scan_result['root'], relpath)
-            try:
-                with open(full_path, 'r', encoding='utf-8', errors='ignore') as fh:
-                    content = fh.read()
-                report = await client.analyze_file({"filename": relpath, "content": content}) or {}
-            except Exception as exc:
-                report = {"error": str(exc), "dependencies": []}
+#     try:
+#         scan_result = scan_repository(tmpdir)
+#     except Exception as error:
+#         raise HTTPException(status_code=502, detail=f'Repo scan failed: {error}')
 
-            enriched_deps = []
-            for dep in report.get('dependencies', []) or []:
-                enriched = await resolve_dependency_entry(dep, relpath, report)
-                key = (enriched['name'].lower(), normalize_version(enriched.get('version')).lower())
-                existing = resolved_index.get(key)
-                if existing:
-                    sources = set(existing.get('sources', [])) | set(enriched.get('sources', []))
-                    existing['sources'] = sorted(sources)
-                    if existing.get('risk_score') is None and enriched.get('risk_score') is not None:
-                        existing['risk_score'] = enriched.get('risk_score')
-                        existing['risk_level'] = enriched.get('risk_level')
-                    if not existing.get('risk_score_explanation') and enriched.get('risk_score_explanation'):
-                        existing['risk_score_explanation'] = enriched.get('risk_score_explanation')
-                    for key in ("license_risk_score", "security_risk_score", "maintenance_risk_score", "usage_context_risk_score"):
-                        if existing.get(key) is None and enriched.get(key) is not None:
-                            existing[key] = enriched.get(key)
-                    if not existing.get('library_id') and enriched.get('library_id'):
-                        existing['library_id'] = enriched.get('library_id')
-                    if not existing.get('repository_url') and enriched.get('repository_url'):
-                        existing['repository_url'] = enriched.get('repository_url')
-                else:
-                    resolved_index[key] = enriched
-                enriched_deps.append({**enriched})
+#     analyzed_files: List[Dict[str, Any]] = []
+#     resolved_index: Dict[tuple, Dict[str, Any]] = {}
+#     tmpdir = scan_result.get('root')
+#     try:
+#         for relpath in scan_result.get('files', []):
+#             full_path = os.path.join(scan_result['root'], relpath)
+#             try:
+#                 with open(full_path, 'r', encoding='utf-8', errors='ignore') as fh:
+#                     content = fh.read()
+#                 report = await client.analyze_file({"filename": relpath, "content": content}) or {}
+#             except Exception as exc:
+#                 report = {"error": str(exc), "dependencies": []}
 
-            report['dependencies'] = enriched_deps
-            analyzed_files.append({"path": relpath, "report": report})
-    finally:
-        if tmpdir:
-            shutil.rmtree(tmpdir, ignore_errors=True)
+#             enriched_deps = []
+#             for dep in report.get('dependencies', []) or []:
+#                 enriched = await resolve_dependency_entry(dep, relpath, report)
+#                 key = (enriched['name'].lower(), normalize_version(enriched.get('version')).lower())
+#                 existing = resolved_index.get(key)
+#                 if existing:
+#                     sources = set(existing.get('sources', [])) | set(enriched.get('sources', []))
+#                     existing['sources'] = sorted(sources)
+#                     if existing.get('risk_score') is None and enriched.get('risk_score') is not None:
+#                         existing['risk_score'] = enriched.get('risk_score')
+#                         existing['risk_level'] = enriched.get('risk_level')
+#                     if not existing.get('risk_score_explanation') and enriched.get('risk_score_explanation'):
+#                         existing['risk_score_explanation'] = enriched.get('risk_score_explanation')
+#                     for key in ("license_risk_score", "security_risk_score", "maintenance_risk_score", "usage_context_risk_score"):
+#                         if existing.get(key) is None and enriched.get(key) is not None:
+#                             existing[key] = enriched.get(key)
+#                     if not existing.get('library_id') and enriched.get('library_id'):
+#                         existing['library_id'] = enriched.get('library_id')
+#                     if not existing.get('repository_url') and enriched.get('repository_url'):
+#                         existing['repository_url'] = enriched.get('repository_url')
+#                 else:
+#                     resolved_index[key] = enriched
+#                 enriched_deps.append({**enriched})
 
-    dependencies = []
-    for dep in resolved_index.values():
-        dep.pop('_key', None)
-        dependencies.append(dep)
+#             report['dependencies'] = enriched_deps
+#             analyzed_files.append({"path": relpath, "report": report})
+#     finally:
+#         if created_tmp and tmpdir:
+#             shutil.rmtree(tmpdir, ignore_errors=True)
 
-    return {"analyzed_files": analyzed_files, "dependencies": dependencies}
+#     dependencies = []
+#     for dep in resolved_index.values():
+#         dep.pop('_key', None)
+#         dependencies.append(dep)
+
+#     return {"analyzed_files": analyzed_files, "dependencies": dependencies}
 
 
 @router.get('/', response_model=List[LibraryDocument])
@@ -344,13 +363,14 @@ async def handle_analyze_file(file: UploadFile = File(...)):
 @router.post('/repositories/scan')
 async def handle_repo_scan(payload: dict):
     repo_url = payload.get('url')
-    if not repo_url:
-        raise HTTPException(status_code=400, detail='url is required')
+    root = payload.get('root')
+    if not repo_url and not root:
+        raise HTTPException(status_code=400, detail='url or root is required')
     client = get_mcp_http_client()
     if not client:
         raise HTTPException(status_code=503, detail='MCP HTTP client not configured')
 
-    scan_data = await perform_repo_scan(repo_url, client)
+    scan_data = await perform_repo_scan(repo_url, client, root=root)
     # Persist summarized scan to repository_scans collection
     platform, repo_name = _infer_repo_meta(repo_url)
     try:
@@ -379,6 +399,57 @@ async def handle_repo_scan(payload: dict):
         print(f'{datetime.utcnow().isoformat()} [repo_scan] failed to persist scan: {exc}')
 
     return {"url": repo_url, "files": scan_data["analyzed_files"], "dependencies": scan_data["dependencies"]}
+
+
+@router.post('/repositories/clone')
+async def handle_repo_clone(payload: dict):
+    """Clone a repository and return a preview list of dependency files and parsed packages.
+
+    Response: { url, root, files: [ { path, report }, ... ] }
+    """
+    repo_url = payload.get('url')
+    if not repo_url:
+        raise HTTPException(status_code=400, detail='url is required')
+
+    try:
+        root = clone_repository(repo_url)
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=f'Repo clone failed: {error}')
+
+    try:
+        summaries = list_repository_packages(root)
+    except Exception as error:
+        # cleanup cloned repo on failure
+        shutil.rmtree(root, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f'Failed to list repository packages: {error}')
+
+    # Note: we keep the cloned repo on disk for now so the UI can request a follow-up scan if needed.
+    return {"url": repo_url, "root": root, "files": summaries}
+
+
+@router.post('/repositories/list-packages')
+async def handle_repo_list_packages(payload: dict):
+    """Return parsed dependency-file summaries for an existing cloned repo (by `root`) or for a repo URL.
+
+    Request body: { "root": "/path/to/clone" } OR { "url": "https://..." }
+    Response: { url?, root, files: [ { path, report }, ... ] }
+    """
+    root = payload.get('root')
+    repo_url = payload.get('url')
+
+    if not root and not repo_url:
+        raise HTTPException(status_code=400, detail='root or url is required')
+
+    try:
+        if root:
+            summaries = list_repository_packages(root)
+            return {"root": root, "files": summaries}
+        # else clone then list
+        root = clone_repository(repo_url)
+        summaries = list_repository_packages(root)
+        return {"url": repo_url, "root": root, "files": summaries}
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
 
 
 @router.post('/repositories/scan/highest-risk')
