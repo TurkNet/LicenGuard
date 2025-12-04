@@ -10,6 +10,7 @@ RUN apt-get update \
         build-essential \
         curl \
         git \
+        openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
