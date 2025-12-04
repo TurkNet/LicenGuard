@@ -21,6 +21,14 @@ def create_app() -> FastAPI:
     log_fmt = '%(asctime)s %(levelname)s %(message)s'
     log_config['formatters']['default']['fmt'] = log_fmt
     log_config['formatters']['access']['fmt'] = '%(asctime)s %(levelname)s %(client_addr)s - "%(request_line)s" %(status_code)s'
+    
+    # Ensure 'app' logger captures INFO logs
+    log_config['loggers']['app'] = {
+        'handlers': ['default'],
+        'level': 'INFO',
+        'propagate': False
+    }
+    
     logging.config.dictConfig(log_config)
 
     app = FastAPI(title='LicenGuard API', version='0.1.0')
