@@ -18,8 +18,7 @@ DEP_FILES = {
     "pom.xml", "build.gradle", "build.gradle.kts",
     # .NET
     "packages.config",
-    # TODO: Disable until .csproj support is added
-    # "csproj",
+    ".csproj",
     # Go
     "go.mod", "vendor/modules.txt",
 }
@@ -27,9 +26,9 @@ DEP_FILES = {
 
 def is_dependency_file(filename: str) -> bool:
     lower = filename.lower()
-    # TODO: Disable until .csproj support is added
-    # if lower.endswith(".csproj"):
-    #     return True
+
+    if lower.endswith(".csproj"):
+        return True
     return lower in DEP_FILES
 
 

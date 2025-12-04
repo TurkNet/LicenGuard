@@ -294,6 +294,10 @@ async def handle_repo_clone(payload: dict):
     repo_url = payload.get('url')
     if not repo_url:
         raise HTTPException(status_code=400, detail='url is required')
+    if not isinstance(repo_url, str):
+        raise HTTPException(status_code=400, detail='url must be a string')
+    # ensure static type checkers see a plain str
+    repo_url = str(repo_url)
 
     try:
         root = clone_repository(repo_url)
@@ -329,9 +333,12 @@ async def handle_repo_list_packages(payload: dict):
             summaries = list_repository_packages(root)
             return {"root": root, "files": summaries}
         # else clone then list
-        root = clone_repository(repo_url)
-        summaries = list_repository_packages(root)
-        return {"url": repo_url, "root": root, "files": summaries}
+        elif repo_url:
+            if not isinstance(repo_url, str):
+                raise HTTPException(status_code=400, detail='url must be a string')
+            root = clone_repository(str(repo_url))
+            summaries = list_repository_packages(root)
+            return {"url": repo_url, "root": root, "files": summaries}
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
 
@@ -346,6 +353,9 @@ async def handle_repo_scan_highest_risk(payload: dict):
     repo_url = payload.get('url')
     if not repo_url:
         raise HTTPException(status_code=400, detail='url is required')
+    if not isinstance(repo_url, str):
+        raise HTTPException(status_code=400, detail='url must be a string')
+    repo_url = str(repo_url)
 
     client = get_mcp_http_client()
     if not client:
