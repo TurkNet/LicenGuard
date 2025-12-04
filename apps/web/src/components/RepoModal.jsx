@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { scanRepository, searchLibraries, createLibrary } from '../api/client.js';
+import { cloneRepository, listRepositoryPackages, searchLibraries, createLibrary } from '../api/client.js';
 
 const RiskBar = ({ score, explanation }) => {
   if (score === undefined || score === null || Number.isNaN(score)) return null;
@@ -22,6 +22,7 @@ export default function RepoLinkModal({ isOpen, onClose, onImported }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [files, setFiles] = useState([]);
+  const [statusMessage, setStatusMessage] = useState('');
   const [depJobs, setDepJobs] = useState([]);
   const [processing, setProcessing] = useState(false);
   const inputRef = useRef(null);
@@ -37,6 +38,9 @@ export default function RepoLinkModal({ isOpen, onClose, onImported }) {
     if (matchedVersion) return `(N/A) -> ${matchedVersion}/latest`;
     return '(N/A)';
   };
+
+  const totalJobs = depJobs.length;
+  const processedJobs = depJobs.filter(j => j.status !== 'pending').length;
 
   const resetState = () => {
     setRepoUrl('');
@@ -72,6 +76,13 @@ export default function RepoLinkModal({ isOpen, onClose, onImported }) {
     if (!value) return null;
     const cleaned = value.replace(/^[~^><=\s]+/, '').trim();
     return cleaned || null;
+  }, []);
+
+  const cancelledRef = React.useRef(false);
+  useEffect(() => {
+    return () => {
+      cancelledRef.current = true;
+    };
   }, []);
 
   const computeRisk = useCallback((match = {}) => {
@@ -123,9 +134,18 @@ export default function RepoLinkModal({ isOpen, onClose, onImported }) {
       setError(null);
       setFiles([]);
       setDepJobs([]);
-      const res = await scanRepository(repoUrl);
-      const scannedFiles = res.files ?? [];
+
+      setStatusMessage('Cloning repository...');
+      const cloneRes = await cloneRepository(repoUrl);
+      setStatusMessage('Cloning repository completed.');
+      const root = cloneRes.root;
+
+      setStatusMessage('Listing dependency files...');
+      const listRes = await listRepositoryPackages({ root });
+      const scannedFiles = listRes.files ?? cloneRes.files ?? [];
       setFiles(scannedFiles);
+
+      setStatusMessage('Scanning dependencies...');
       const jobs = [];
       scannedFiles.forEach((file, fIdx) => {
         const deps = Array.isArray(file?.report?.dependencies) ? file.report.dependencies : [];
@@ -145,24 +165,154 @@ export default function RepoLinkModal({ isOpen, onClose, onImported }) {
         });
       });
       setDepJobs(jobs);
+      // Process jobs sequentially: check local DB, fallback to MCP, persist if needed
+      setProcessing(true);
+      const updateJob = (id, patch) =>
+        setDepJobs(prev => prev.map(j => (j.id === id ? { ...j, ...patch } : j)));
+
+      for (const next of jobs) {
+        if (cancelledRef.current) break;
+        const q = next.version ? `${next.name} ${next.version}` : next.name;
+        try {
+          updateJob(next.id, { status: 'searching', message: null });
+          const res = await searchLibraries(q);
+          let match = null;
+          let existing = false;
+
+          if (res?.source === 'mongo' && Array.isArray(res?.results) && res.results.length > 0) {
+            existing = true;
+            const lib = res.results[0];
+            const v = lib.versions?.[0];
+            match = {
+              name: lib.name,
+              version: v?.version,
+              ecosystem: lib.ecosystem,
+              description: lib.description,
+              repository: lib.repository_url,
+              license: v?.license_name,
+              license_url: v?.license_url,
+              licenseSummary: v?.license_summary ?? [],
+              evidence: v?.evidence ?? [],
+              confidence: v?.confidence,
+              risk_level: v?.risk_level,
+              risk_score: v?.risk_score,
+              risk_score_explanation: v?.risk_score_explanation
+            };
+          } else if (res?.source === 'mcp' && Array.isArray(res?.results) && res.results.length > 0) {
+            const lib = res.results[0];
+            const v = lib.versions?.[0];
+            match = {
+              name: lib.name,
+              version: v?.version,
+              ecosystem: lib.ecosystem,
+              description: lib.description,
+              repository: lib.repository_url,
+              license: v?.license_name,
+              license_url: v?.license_url,
+              licenseSummary: v?.license_summary ?? [],
+              evidence: v?.evidence ?? [],
+              confidence: v?.confidence,
+              risk_level: v?.risk_level,
+              risk_score: v?.risk_score,
+              risk_score_explanation: v?.risk_score_explanation,
+              officialSite: lib.officialSite
+            };
+          } else if (res?.discovery?.matches?.length) {
+            match = res.discovery.bestMatch ?? res.discovery.matches[0];
+          }
+
+          if (!match) {
+            updateJob(next.id, { status: 'error', message: 'Eşleşme bulunamadı' });
+            continue;
+          }
+
+          const computedRisk = computeRisk(match);
+          const risk = {
+            level: match.risk_level ?? computedRisk.level,
+            score: match.risk_score ?? computedRisk.score,
+            explanation: match.risk_score_explanation ?? computedRisk.explanation
+          };
+
+          if (existing || res?.source === 'mongo') {
+            updateJob(next.id, {
+              status: 'done',
+              message: 'Zaten kayıtlı',
+              match,
+              risk_level: risk.level,
+              risk_score: risk.score,
+              risk_score_explanation: risk.explanation
+            });
+            continue;
+          }
+
+          updateJob(next.id, { status: 'importing', match, risk_level: risk.level, risk_score: risk.score, risk_score_explanation: risk.explanation });
+
+          const payload = {
+            name: match.name ?? next.name,
+            ecosystem: match.ecosystem ?? res?.discovery?.query?.ecosystem ?? 'unknown',
+            description: match.description,
+            repository_url: match.repository ?? match.officialSite ?? null,
+            officialSite: match.officialSite ?? match.repository ?? null,
+            versions: [
+              {
+                version: normalizeVersion(match.version ?? next.version) ?? 'unknown',
+                license_name: match.license ?? null,
+                license_url: match.license_url ?? null,
+                notes: match.summary ?? null,
+                license_summary: Array.isArray(match.licenseSummary)
+                  ? match.licenseSummary
+                    .map(item =>
+                      typeof item === 'object' && item !== null
+                        ? { summary: item.summary ?? '', emoji: item.emoji ?? null }
+                        : { summary: item, emoji: null }
+                    )
+                    .filter(entry => typeof entry.summary === 'string' && entry.summary.length > 0)
+                  : [],
+                confidence: match.confidence ?? null,
+                evidence: Array.isArray(match.evidence) ? match.evidence : [],
+                risk_level: risk.level,
+                risk_score: risk.score,
+                risk_score_explanation: risk.explanation
+              }
+            ]
+          };
+
+          await createLibrary(payload);
+          updateJob(next.id, { status: 'done', message: 'Eklendi', match });
+          if (onImported) onImported();
+        } catch (err) {
+          updateJob(next.id, { status: 'error', message: err?.message ?? String(err) });
+        }
+      }
+
+      setProcessing(false);
     } catch (err) {
-      setError(err.message);
+      setError(err?.message ?? String(err));
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    let cancelled = false;
+
     const processNext = async () => {
+      if (cancelled) return;
       if (processing) return;
+
       const next = depJobs.find(job => job.status === 'pending');
       if (!next) return;
+
       setProcessing(true);
       const updateJob = (id, patch) =>
         setDepJobs(jobs => jobs.map(j => (j.id === id ? { ...j, ...patch } : j)));
+
       const q = next.version ? `${next.name} ${next.version}` : next.name;
+
       try {
         updateJob(next.id, { status: 'searching', message: null });
+
+        // 1) Check local DB
         const res = await searchLibraries(q);
         let match = null;
         let existing = false;
@@ -187,6 +337,7 @@ export default function RepoLinkModal({ isOpen, onClose, onImported }) {
             risk_score_explanation: v?.risk_score_explanation
           };
         } else if (res?.source === 'mcp' && Array.isArray(res?.results) && res.results.length > 0) {
+          // MCP returned direct results
           const lib = res.results[0];
           const v = lib.versions?.[0];
           match = {
@@ -206,6 +357,7 @@ export default function RepoLinkModal({ isOpen, onClose, onImported }) {
             officialSite: lib.officialSite
           };
         } else if (res?.discovery?.matches?.length) {
+          // discovery bestMatch or matches
           match = res.discovery.bestMatch ?? res.discovery.matches[0];
         }
 
@@ -235,7 +387,9 @@ export default function RepoLinkModal({ isOpen, onClose, onImported }) {
           return;
         }
 
+        // persist MCP/discovery result into local DB
         updateJob(next.id, { status: 'importing', match, risk_level: risk.level, risk_score: risk.score, risk_score_explanation: risk.explanation });
+
         const payload = {
           name: match.name ?? next.name,
           ecosystem: match.ecosystem ?? res?.discovery?.query?.ecosystem ?? 'unknown',
@@ -250,12 +404,12 @@ export default function RepoLinkModal({ isOpen, onClose, onImported }) {
               notes: match.summary ?? null,
               license_summary: Array.isArray(match.licenseSummary)
                 ? match.licenseSummary
-                    .map(item =>
-                      typeof item === 'object' && item !== null
-                        ? { summary: item.summary ?? '', emoji: item.emoji ?? null }
-                        : { summary: item, emoji: null }
-                    )
-                    .filter(entry => typeof entry.summary === 'string' && entry.summary.length > 0)
+                  .map(item =>
+                    typeof item === 'object' && item !== null
+                      ? { summary: item.summary ?? '', emoji: item.emoji ?? null }
+                      : { summary: item, emoji: null }
+                  )
+                  .filter(entry => typeof entry.summary === 'string' && entry.summary.length > 0)
                 : [],
               confidence: match.confidence ?? null,
               evidence: Array.isArray(match.evidence) ? match.evidence : [],
@@ -270,12 +424,19 @@ export default function RepoLinkModal({ isOpen, onClose, onImported }) {
         updateJob(next.id, { status: 'done', message: 'Eklendi', match });
         if (onImported) onImported();
       } catch (err) {
-        updateJob(next.id, { status: 'error', message: err.message });
+        updateJob(next.id, { status: 'error', message: err?.message ?? String(err) });
       } finally {
+        setStatusMessage('Scanning completed.');
         setProcessing(false);
       }
     };
+
+    // try to drive processing whenever jobs change
     processNext();
+
+    return () => {
+      cancelled = true;
+    };
   }, [depJobs, processing, computeRisk, normalizeVersion, onImported]);
 
   if (!isOpen) return null;
@@ -296,11 +457,11 @@ export default function RepoLinkModal({ isOpen, onClose, onImported }) {
             ✕
           </button>
         </div>
-        <div className="panel" style={{ background: 'transparent', boxShadow: 'none', color: 'white' }}>
+        <div className="panel" style={{ background: 'transparent', boxShadow: 'none', color: 'white', overflowY: 'visible' }}>
           <p>Repo linkini girin, link geçerliyse tarayalım.</p>
           <form
             className="inline-form"
-            style={{ marginBottom: '1rem' }}
+            style={{ marginBottom: '0.5rem' }}
             onSubmit={handleSubmit}
           >
             <input
@@ -311,15 +472,21 @@ export default function RepoLinkModal({ isOpen, onClose, onImported }) {
               ref={inputRef}
             />
             <div style={{ textAlign: 'right' }}>
-              <button type="submit" disabled={Boolean(error) || !repoUrl || loading} className="button">
-                {loading ? 'Taranıyor…' : 'Kontrol'}
+              <button type="submit" disabled={Boolean(error) || !repoUrl || loading || processing} className="button">
+                {(loading || processing) ? 'Taranıyor…' : 'Kontrol Et'}
               </button>
             </div>
           </form>
           {error && <p className="error">{error}</p>}
+          {statusMessage && (
+            <div style={{ marginBottom: '0.5rem', color: '#cbd5f5' }}>
+              {statusMessage}{(loading || processing) && totalJobs > 0 ? ` (${processedJobs}/${totalJobs})` : ''}
+            </div>
+          )}
           {files.length > 0 && (
-            <div style={{ marginTop: '1rem', background: 'rgba(255,255,255,0.05)', padding: '0.75rem', borderRadius: '12px' }}>
+            <div style={{ marginTop: '1rem', background: 'rgba(255,255,255,0.05)', padding: '0.75rem', borderRadius: '12px', maxHeight: '320px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
               <p style={{ marginTop: 0, marginBottom: '0.5rem' }}>Bulunan dependency dosyaları:</p>
+
               <ul style={{ margin: 0, paddingLeft: 0, color: 'white', listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                 {files.map((f, idx) => {
                   const deps = jobsByFile(f.path);

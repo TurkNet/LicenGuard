@@ -42,11 +42,42 @@ export function addVersion(libraryId, payload) {
   });
 }
 
-export async function scanRepository(url) {
-  const res = await fetch(`${API_BASE}/libraries/repositories/scan`, {
+export async function cloneRepository(url) {
+  const res = await fetch(`${API_BASE}/libraries/repositories/clone`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url })
+  });
+  if (!res.ok) {
+    const message = await res.text();
+    throw new Error(message || `Request failed with status ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function listRepositoryPackages({ root, url } = {}) {
+  const body = JSON.stringify(root ? { root } : { url });
+  const res = await fetch(`${API_BASE}/libraries/repositories/list-packages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  });
+  if (!res.ok) {
+    const message = await res.text();
+    throw new Error(message || `Request failed with status ${res.status}`);
+  }
+  return res.json();
+}
+
+// Backwards-compatible scanRepository: accepts string url or object { url } | { root }
+export async function scanRepository(input) {
+  let body;
+  if (typeof input === 'string') body = JSON.stringify({ url: input });
+  else body = JSON.stringify(input || {});
+  const res = await fetch(`${API_BASE}/libraries/repositories/scan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
   });
   if (!res.ok) {
     const message = await res.text();
