@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { createLibrary, searchLibraries } from '../api/client.js';
 
+
+//  TODO: RiskScore Gauge component'ı ortak bir yere taşı.
+
 const RiskGauge = ({ score, level }) => {
   if (score === undefined || score === null || Number.isNaN(score)) return null;
   const clamped = Math.min(100, Math.max(0, Number(score)));
