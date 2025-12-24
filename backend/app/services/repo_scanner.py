@@ -111,7 +111,7 @@ def clone_repository(repo_url: str, target_dir: str | None = None) -> str:
 
     clone_url, secret_used = _with_host_auth(repo_url)
     result = subprocess.run(
-        ["git", "clone", "--depth", "1", clone_url, tmpdir],
+        ["git", "clone", "--depth", "1", "--single-branch", "--filter=blob:none", clone_url, tmpdir],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         env=env,

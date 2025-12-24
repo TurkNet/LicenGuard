@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "webpack serve --env development",
     "build": "webpack --env production",
-    "preview": "npx serve dist"
+    "preview": "npx serve dist",
+    "devrules": "node /private/var/folders/jb/5r_f1tv12yg07gd51_7fw53w0000gn/T/devrules-9Kyxxq/DevRules-main/tools/apply-rules.mjs --repo .",
+    "devrules:force": "node /private/var/folders/jb/5r_f1tv12yg07gd51_7fw53w0000gn/T/devrules-9Kyxxq/DevRules-main/tools/apply-rules.mjs --repo . --force",
+    "devrules:dry": "node /private/var/folders/jb/5r_f1tv12yg07gd51_7fw53w0000gn/T/devrules-9Kyxxq/DevRules-main/tools/apply-rules.mjs --repo . --dry-run"
   },
   "dependencies": {
     "dotenv": "^17.2.3",
@@ -24,6 +27,6 @@
     "style-loader": "^4.0.0",
     "webpack": "^5.96.1",
     "webpack-cli": "^5.1.4",
-    "webpack-dev-server": "^5.0.4"
+    "webpack-dev-server": "^5.2.2"
   }
 }

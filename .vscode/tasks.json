@@ -58,13 +58,13 @@
     {
       "label": "docker:mongo:start",
       "type": "shell",
-      "command": "docker compose -f ${workspaceFolder}/docker-compose.yml up -d mongo",
+      "command": "/usr/local/bin/docker compose -f ${workspaceFolder}/docker-compose.yml up -d mongo --build",
       "problemMatcher": []
     },
     {
       "label": "docker:mongo:stop",
       "type": "shell",
-      "command": "docker compose -f ${workspaceFolder}/docker-compose.yml stop mongo",
+      "command": "/usr/local/bin/docker compose -f ${workspaceFolder}/docker-compose.yml stop mongo",
       "problemMatcher": []
     },
     {
