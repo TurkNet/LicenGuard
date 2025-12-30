@@ -8,7 +8,7 @@ def detect_package_manager(filename: str, content: str) -> str:
     snippet = content[:200].lower()
     if "package.json" in lowered or '"dependencies"' in snippet:
         return "npm"
-    if lowered.endswith("requirements.txt") or "pip" in snippet or "==" in snippet:
+    if lowered.endswith("requirements.txt") or "pip" in snippet:
         return "pypi"
     if lowered.endswith("pom.xml"):
         return "maven"
