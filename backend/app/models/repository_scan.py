@@ -8,12 +8,14 @@ from .library import PyObjectId
 class RepoLibrary(BaseModel):
     library_name: str = Field(..., description='Discovered library name')
     library_version: str = Field(..., description='Discovered library version')
+    ecosystem: str = Field(..., description='Ecosystem of the library (e.g., npm, pip, maven, etc.)')
     model_config = ConfigDict(populate_by_name=True)
 
 
 class RepoDependency(BaseModel):
     library_path: str = Field(..., description='Path of the dependency manifest inside the repository')
     libraries: List[RepoLibrary] = Field(default_factory=list, description='Libraries found in this file')
+
 
 
 class RepositoryScanBase(BaseModel):
