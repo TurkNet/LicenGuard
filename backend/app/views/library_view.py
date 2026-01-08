@@ -409,24 +409,30 @@ async def handle_repo_scan_highest_risk(payload: dict):
     # Persist summarized scan to repository_scans collection
     platform, repo_name = _infer_repo_meta(repo_url)
     try:
+        # Group enriched dependencies by their source file path (library_path)
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        for d in dependencies:
+            # prefer explicit file field, fall back to first source if present
+            path = d.get('file') or (d.get('sources')[0] if d.get('sources') else None) or 'unknown'
+            if not d.get('name'):
+                continue
+            lib_entry = {
+                "library_name": d.get('name'),
+                "library_version": normalize_version(d.get('version')) or d.get('version') or "unknown",
+                "ecosystem": d.get('ecosystem')
+            }
+            grouped.setdefault(path, []).append(lib_entry)
+
+        deps_payload = [
+            {"library_path": path, "libraries": libs}
+            for path, libs in grouped.items()
+        ]
+
         payload = RepositoryScanCreate(
             repository_url=repo_url,
             repository_platform=platform,
             repository_name=repo_name,
-            dependencies=[
-                {
-                    "library_path": file.get("path"),
-                    "libraries": [
-                        {
-                            "library_name": dep.get("name"),
-                            "library_version": normalize_version(dep.get("version")) or dep.get("version") or "unknown"
-                        }
-                        for dep in (file.get("report", {}).get("dependencies") or [])
-                        if dep.get("name")
-                    ],
-                }
-                for file in analyzed_files
-            ],
+            dependencies=deps_payload,
         )
         await create_repository_scan(payload)
     except Exception as exc:
