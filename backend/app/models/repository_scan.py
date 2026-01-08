@@ -8,7 +8,7 @@ from .library import PyObjectId
 class RepoLibrary(BaseModel):
     library_name: str = Field(..., description='Discovered library name')
     library_version: str = Field(..., description='Discovered library version')
-    ecosystem: str = Field(..., description='Ecosystem of the library (e.g., npm, pip, maven, etc.)')
+    ecosystem: Optional[str] = Field(None, description='Ecosystem of the library (e.g., npm, pip, maven, etc.). May be null for legacy records')
     model_config = ConfigDict(populate_by_name=True)
 
 

@@ -419,7 +419,7 @@ async def handle_repo_scan_highest_risk(payload: dict):
             lib_entry = {
                 "library_name": d.get('name'),
                 "library_version": normalize_version(d.get('version')) or d.get('version') or "unknown",
-                "ecosystem": d.get('ecosystem')
+                "ecosystem": d.get('ecosystem') or 'unknown'
             }
             grouped.setdefault(path, []).append(lib_entry)
 
