@@ -26,9 +26,10 @@ logInfo('[mcp] __dirname:', __dirname);
 logInfo('[mcp] __filename:', __filename);
 
 
-dotenv.config({ path: path.join(__dirname, '.env') });
+const envPath = path.join(__dirname, '..', '.env');
+dotenv.config({ path: envPath });
 
-logInfo('Dotenv loaded from', path.join(__dirname, '.env'));
+logInfo('Dotenv loaded from', envPath);
 logInfo('LLM config', getActiveLlmInfo());
 
 const llmInfo = getActiveLlmInfo();
@@ -453,7 +454,7 @@ function createServer() {
 
   const analyzeFileHandler = async ({ filename, content }) => {
     if (!filename || !content) throw new Error('filename and content are required');
-    const report = analyzeFile({ filename, content });
+    const report = await analyzeFile({ filename, content });
     logInfo('[mcp] analyze-file', JSON.stringify({ filename, manager: report.packageManager, deps: report.dependencies }));
     return {
       content: [{ type: 'text', text: JSON.stringify(report, null, 2) }],
