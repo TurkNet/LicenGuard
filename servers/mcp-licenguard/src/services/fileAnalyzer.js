@@ -1,3 +1,76 @@
+/**
+ * Normalize version string to a single fixed version.
+ * Handles complex version formats like:
+ * - "1.0.3 || ^2.0.0" -> extracts first valid version or highest
+ * - "npm:typescript@^3.1.6" -> "3.1.6"
+ * - "^1.2.3" -> "1.2.3"
+ * - ">=1.0.0" -> "1.0.0"
+ * - "1.4 - 1.8" -> "1.8"
+ * - "1.x, 1.*" -> "1.0.0" (placeholder)
+ * - "dexy#1.0.1" -> "1.0.1"
+ * - ">=" -> null (invalid)
+ */
+export function normalizeVersion(versionString) {
+  if (!versionString || typeof versionString !== 'string') {
+    return null;
+  }
+  
+  let version = versionString.trim();
+  
+  // Remove npm: prefix (e.g., "npm:typescript@^3.1.6")
+  version = version.replace(/^npm:\s*/i, '');
+  
+  // Remove git/URL prefixes (e.g., "dexy#1.0.1", "git+https://...")
+  version = version.replace(/^(git\+|https?:\/\/|ssh:\/\/|dexy#|github:|gitlab:).*?[@#]/, '');
+  version = version.replace(/^.*?[@#]/, '');
+  
+  // Handle OR conditions (e.g., "1.0.3 || ^2.0.0")
+  if (version.includes('||')) {
+    const parts = version.split('||').map(p => p.trim());
+    // Take the first part that looks like a version
+    for (const part of parts) {
+      const cleaned = part.replace(/^[~^><=\s]+/, '').trim();
+      if (cleaned && /^[\d.]+/.test(cleaned)) {
+        version = cleaned;
+        break;
+      }
+    }
+  }
+  
+  // Handle ranges (e.g., "1.4 - 1.8", "1.4-1.8")
+  if (version.includes(' - ') || version.includes('-')) {
+    const rangeMatch = version.match(/([\d.]+)\s*-\s*([\d.]+)/);
+    if (rangeMatch) {
+      version = rangeMatch[2]; // Take the higher version
+    }
+  }
+  
+  // Handle wildcards (e.g., "1.x", "1.*", "1.X")
+  version = version.replace(/\.(x|\*|X)$/, '.0');
+  version = version.replace(/^(x|\*|X)\./, '0.');
+  
+  // Remove version operators (^, ~, >=, <=, >, <, =)
+  version = version.replace(/^[~^><=\s]+/, '');
+  
+  // Remove 'v' prefix (e.g., "v1.2.3")
+  version = version.replace(/^v/i, '');
+  
+  // Extract version number (e.g., from "1.2.3-alpha" get "1.2.3")
+  const versionMatch = version.match(/^([\d.]+)/);
+  if (versionMatch) {
+    version = versionMatch[1];
+  } else {
+    return null; // No valid version found
+  }
+  
+  // Ensure it's a valid semver-like format (at least one dot)
+  if (!version.includes('.')) {
+    version = version + '.0';
+  }
+  
+  return version.trim() || null;
+}
+
 export function detectPackageManager(filename, content) {
   const lowered = (filename || "").toLowerCase();
   const snippet = (content || "").slice(0, 400).toLowerCase();
@@ -231,58 +304,110 @@ async function getLatestGoVersion(modulePath) {
 }
 
 async function enrichDependenciesWithLatestVersions(dependencies, ecosystem) {
-  /**Enrich dependencies that don't have versions with their latest versions.
+  /**Enrich dependencies with normalized versions and latest versions.
+  
+  Strategy:
+  1. Normalize existing versions to fixed format
+  2. If version is missing or invalid, try AI first
+  3. If AI doesn't provide version, fall back to package manager APIs
   
   Supports: npm, pypi, maven, nuget, go
   */
+  // Dynamic import to avoid circular dependency
+  const { discoverLibraryInfo } = await import('./libraryDiscovery.js');
+  
   const enriched = [];
   for (const dep of dependencies) {
     const name = dep.name;
-    const version = dep.version;
+    let version = dep.version;
     
-    // Skip if version already exists
+    // First, normalize the version if it exists
     if (version) {
-      enriched.push(dep);
-      continue;
+      const normalized = normalizeVersion(version);
+      if (normalized) {
+        enriched.push({
+          ...dep,
+          version: normalized,
+          original_version: version,
+          version_source: 'normalized'
+        });
+        continue;
+      }
+      // If normalization failed, treat as missing version
+      version = null;
     }
     
+    // If version is missing or invalid, try AI first
     let latestVersion = null;
     let versionSource = null;
     
-    if (ecosystem === "npm" && name) {
-      latestVersion = await getLatestNpmVersion(name);
-      versionSource = "latest_from_npm";
-    } else if (ecosystem === "pypi" && name) {
-      latestVersion = await getLatestPypiVersion(name);
-      versionSource = "latest_from_pypi";
-    } else if (ecosystem === "maven" && name) {
-      // Maven format: groupId:artifactId
-      if (name.includes(":")) {
-        const [groupId, artifactId] = name.split(":", 2);
-        latestVersion = await getLatestMavenVersion(groupId, artifactId);
-        versionSource = "latest_from_maven";
-      } else if (dep.groupId && dep.artifactId) {
-        latestVersion = await getLatestMavenVersion(dep.groupId, dep.artifactId);
-        versionSource = "latest_from_maven";
+    if (name) {
+      try {
+        const aiResult = await discoverLibraryInfo({
+          name: name,
+          version: null,
+          ecosystem: ecosystem
+        });
+        
+        // Extract version from AI result
+        if (aiResult?.matches && Array.isArray(aiResult.matches) && aiResult.matches.length > 0) {
+          const match = aiResult.matches[0];
+          if (match.version) {
+            const aiNormalized = normalizeVersion(match.version);
+            if (aiNormalized) {
+              latestVersion = aiNormalized;
+              versionSource = 'latest_from_ai';
+            }
+          }
+        }
+      } catch (error) {
+        // AI failed, continue to package manager lookup
+        console.warn(`[mcp] AI lookup failed for ${name}, falling back to package manager`, error?.message);
       }
-    } else if (ecosystem === "nuget" && name) {
-      latestVersion = await getLatestNugetVersion(name);
-      versionSource = "latest_from_nuget";
-    } else if (ecosystem === "go" && name) {
-      // Use full_name if available (includes module path), otherwise use name
-      const modulePath = dep.full_name || name;
-      latestVersion = await getLatestGoVersion(modulePath);
-      versionSource = "latest_from_goproxy";
+    }
+    
+    // If AI didn't provide version, try package manager APIs
+    if (!latestVersion) {
+      if (ecosystem === "npm" && name) {
+        latestVersion = await getLatestNpmVersion(name);
+        versionSource = "latest_from_npm";
+      } else if (ecosystem === "pypi" && name) {
+        latestVersion = await getLatestPypiVersion(name);
+        versionSource = "latest_from_pypi";
+      } else if (ecosystem === "maven" && name) {
+        // Maven format: groupId:artifactId
+        if (name.includes(":")) {
+          const [groupId, artifactId] = name.split(":", 2);
+          latestVersion = await getLatestMavenVersion(groupId, artifactId);
+          versionSource = "latest_from_maven";
+        } else if (dep.groupId && dep.artifactId) {
+          latestVersion = await getLatestMavenVersion(dep.groupId, dep.artifactId);
+          versionSource = "latest_from_maven";
+        }
+      } else if (ecosystem === "nuget" && name) {
+        latestVersion = await getLatestNugetVersion(name);
+        versionSource = "latest_from_nuget";
+      } else if (ecosystem === "go" && name) {
+        // Use full_name if available (includes module path), otherwise use name
+        const modulePath = dep.full_name || name;
+        latestVersion = await getLatestGoVersion(modulePath);
+        versionSource = "latest_from_goproxy";
+      }
     }
     
     if (latestVersion) {
       enriched.push({
         ...dep,
         version: latestVersion,
+        original_version: dep.version || null,
         version_source: versionSource
       });
     } else {
-      enriched.push(dep);
+      // Keep original dependency even if we couldn't find version
+      enriched.push({
+        ...dep,
+        original_version: dep.version || null
+      });
     }
   }
   

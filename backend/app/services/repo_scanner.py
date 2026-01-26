@@ -32,13 +32,88 @@ def is_dependency_file(filename: str) -> bool:
     return lower in DEP_FILES
 
 
+# Common directories and files to ignore during scanning
+IGNORED_DIRS = {
+    "node_modules",
+    "build",
+    "dist",
+    ".git",
+    ".svn",
+    ".hg",
+    "vendor",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".venv",
+    "venv",
+    "env",
+    ".env",
+    "target",
+    "bin",
+    "obj",
+    ".idea",
+    ".vscode",
+    ".vs",
+    "coverage",
+    ".coverage",
+    ".nyc_output",
+    ".next",
+    "out",
+    ".cache",
+    "tmp",
+    "temp",
+    ".tmp",
+    ".temp",
+}
+
+
+def _should_ignore_path(path: str) -> bool:
+    """
+    Check if a path should be ignored based on common ignore patterns.
+    Path can be absolute or relative.
+    """
+    # Normalize path separators
+    normalized = path.replace("\\", "/")
+    parts = normalized.split("/")
+    
+    # Check if any part matches ignored directories
+    for part in parts:
+        if part in IGNORED_DIRS:
+            return True
+        # Ignore hidden directories (starting with .) except for specific files
+        if part.startswith(".") and part not in [".", ".."]:
+            # Allow .csproj files (they are dependency files, not directories)
+            if part.endswith(".csproj"):
+                continue
+            # Ignore other hidden directories
+            return True
+    
+    return False
+
+
 def find_dependency_files(root: str) -> List[str]:
+    """
+    Find dependency files in a repository, excluding common build/ignore directories.
+    """
     matches = []
-    for dirpath, _, files in os.walk(root):
+    root_abs = os.path.abspath(root)
+    
+    for dirpath, dirnames, files in os.walk(root):
+        # Prune ignored directories from os.walk
+        dirnames[:] = [d for d in dirnames if d not in IGNORED_DIRS and not d.startswith(".")]
+        
+        # Check if current directory should be ignored
+        rel_dir = os.path.relpath(dirpath, root)
+        if _should_ignore_path(rel_dir):
+            continue
+        
         for name in files:
             if is_dependency_file(name):
                 rel = os.path.relpath(os.path.join(dirpath, name), root)
-                matches.append(rel)
+                # Double-check the full path isn't in an ignored directory
+                if not _should_ignore_path(rel):
+                    matches.append(rel)
+    
     return matches
 
 
